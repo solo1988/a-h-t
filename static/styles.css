@@ -1,0 +1,17 @@
+/* Пример простого CSS */
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+}
+
+.game-card, .achievement-card {
+    border: 1px solid #ccc;
+    padding: 10px;
+    margin: 10px;
+    border-radius: 5px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    color: #333;
+}
