@@ -181,7 +181,7 @@ async def achievements(request: Request, appid: int):
         try:
             achievements = await get_achievements_for_game(session, appid)
             game_name = await get_game_name(session, appid)
-            background_url = f"https://cdn.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
+            background_url = f"/static/images/background/{appid}.jpg"
 
             # Подготовка данных для отображения
             achievements_data = [

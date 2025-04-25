@@ -3,6 +3,85 @@ from sqlalchemy.future import select
 from models import Game, Achievement
 import logging
 from datetime import datetime
+import os
+import aiohttp
+from pathlib import Path
+
+STATIC_DIR = Path(__file__).parent / "static" / "images" / "header"
+BACKGROUND_DIR = Path(__file__).parent / "static" / "images" / "background"
+
+async def check_background_exists_local(appid: int) -> bool:
+    return (BACKGROUND_DIR / f"{appid}.jpg").exists()
+
+async def ensure_background_image(session: aiohttp.ClientSession, appid: int) -> str:
+    BACKGROUND_DIR.mkdir(parents=True, exist_ok=True)
+    local_path = BACKGROUND_DIR / f"{appid}.jpg"
+
+    if await check_background_exists_local(appid):
+        return f"/static/images/background/{appid}.jpg"
+
+    background_url = f"https://cdn.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
+    logging.info(f"[Background] Пробуем скачать background для {appid} из: {background_url}")
+    if await download_image(session, background_url, local_path):
+        return f"/static/images/background/{appid}.jpg"
+
+    logging.warning(f"[Background] Не удалось получить background для {appid}")
+    return ""  # или можно подставить заглушку, если хочешь
+
+
+async def check_image_exists_local(appid: int) -> bool:
+    return (STATIC_DIR / f"{appid}.jpg").exists()
+
+async def download_image(session: aiohttp.ClientSession, url: str, path: Path) -> bool:
+    try:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                with open(path, "wb") as f:
+                    f.write(await resp.read())
+                logging.info(f"[Загрузка] Скачано изображение: {url}")
+                return True
+            else:
+                logging.warning(f"[Загрузка] Не удалось скачать изображение: {url}, статус {resp.status}")
+    except Exception as e:
+        logging.error(f"[Ошибка загрузки] {url} — {e}")
+    return False
+
+async def get_header_image_url_from_api(session: aiohttp.ClientSession, appid: int) -> str:
+    api_url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
+    try:
+        async with session.get(api_url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                entry = data.get(str(appid), {})
+                if entry.get("success") and "data" in entry:
+                    return entry["data"].get("header_image", "")
+    except Exception as e:
+        logging.error(f"[Steam API] Ошибка получения header_image для {appid}: {e}")
+    return ""
+
+async def ensure_header_image(session: aiohttp.ClientSession, appid: int) -> str:
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    local_path = STATIC_DIR / f"{appid}.jpg"
+    if await check_image_exists_local(appid):
+        return f"/static/images/header/{appid}.jpg"
+
+    # 1. Пробуем CDN
+    cdn_url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg"
+    if await download_image(session, cdn_url, local_path):
+        return f"/static/images/header/{appid}.jpg"
+
+    # 2. Пробуем Steam API
+    logging.info(f"[API] Пробуем получить header_image для {appid}")
+    header_url = await get_header_image_url_from_api(session, appid)
+    if header_url:
+        logging.info(f"[API] Найден header_image из Steam API для {appid}: {header_url}")
+
+    if header_url and await download_image(session, header_url, local_path):
+        return f"/static/images/header/{appid}.jpg"
+
+    logging.warning(f"[Фон] Не удалось получить header для {appid}")
+    return ""  # можно подставить заглушку
+
 
 # Получение всех игр из базы данных
 async def get_games(db: AsyncSession):
@@ -12,25 +91,31 @@ async def get_games(db: AsyncSession):
         logging.info(f"Получены игры : {games}")
         print(f"Fetched games: {games}")  # Логируем все игры
 
-        for game in games:
-            total_achievements = await get_total_achievements_for_game(db, game.appid)
-            earned_achievements = await get_earned_achievements_for_game(db, game.appid)
-            last_obtained_date = await get_last_obtained_date_for_game(db, game.appid)
-            logging.info(f"Игра {game.name} - Всего достижений: {total_achievements}, получено достижений: {earned_achievements}")
-            print(f"Game {game.name} - Total Achievements: {total_achievements}, Earned Achievements: {earned_achievements}")  # Логируем достижения для каждой игры
-            game.total_achievements = total_achievements
-            game.earned_achievements = earned_achievements
-            # Преобразуем строку в datetime, если это строка
-            if isinstance(last_obtained_date, str):
-                game.last_obtained_date = datetime.fromisoformat(last_obtained_date)
-            else:
-                game.last_obtained_date = last_obtained_date or datetime(1970, 1, 1)  # Используем минимальную дату, если нет данных
-            game.background = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{game.appid}/header.jpg"
+        async with aiohttp.ClientSession() as session:
+            for game in games:
+                total_achievements = await get_total_achievements_for_game(db, game.appid)
+                earned_achievements = await get_earned_achievements_for_game(db, game.appid)
+                last_obtained_date = await get_last_obtained_date_for_game(db, game.appid)
+                logging.info(f"Игра {game.name} - Всего достижений: {total_achievements}, получено достижений: {earned_achievements}")
+                print(f"Game {game.name} - Total Achievements: {total_achievements}, Earned Achievements: {earned_achievements}")  # Логируем достижения для каждой игры
 
-        # Сортируем по last_obtained_date, новейшие — первыми
+                game.total_achievements = total_achievements
+                game.earned_achievements = earned_achievements
+
+                if isinstance(last_obtained_date, str):
+                    game.last_obtained_date = datetime.fromisoformat(last_obtained_date)
+                else:
+                    game.last_obtained_date = last_obtained_date or datetime(1970, 1, 1)
+
+                # Загружаем или подставляем локальный header
+                game.background = await ensure_header_image(session, game.appid)
+                await ensure_background_image(session, game.appid)
+
+        # Сортируем по дате получения
         games.sort(key=lambda g: g.last_obtained_date, reverse=True)
 
         return games
+
     except Exception as e:
         logging.error(f"Ошибка при выборке игр: {str(e)}")
         print(f"Error while fetching games: {str(e)}")
