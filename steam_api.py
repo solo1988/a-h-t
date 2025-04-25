@@ -6,6 +6,8 @@ import os
 from dotenv import load_dotenv
 
 
+load_dotenv()
+
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 STEAM_API_URL = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/"
 
@@ -26,6 +28,7 @@ async def fetch_game_data(appid: int):
     async with httpx.AsyncClient() as client:
         url = f"{STEAM_API_URL}?key={STEAM_API_KEY}&appid={appid}"
         response = await client.get(url)
+        logging.info(f"ссылка стима сгенерированная: {url}")
         if response.status_code == 200:
             game_data = response.json()
             logging.info(f"Получили данные от стима: {game_data}")

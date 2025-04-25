@@ -52,7 +52,7 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 # Настройка логирования
 logging.basicConfig(
     filename="app.log",  # Имя файла для записи логов
-    level=logging.INFO,  # Уровень логирования
+    level=logging.ERROR,  # Уровень логирования
     format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
 
