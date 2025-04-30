@@ -168,6 +168,32 @@ async def home(request: Request):
                 status_code=500, detail=f"Failed to fetch games data: {str(e)}"
             )
 
+# Страница с раздачами
+@app.get("/trackers/{appid}", response_class=HTMLResponse)
+async def trackers(request: Request, appid: int):
+    # Получаем данные о достижениях из базы данных
+    # Проверяем, авторизован ли пользователь
+    user_id = request.session.get("user_id")
+    if user_id != ALLOWED_USER_ID:
+        return RedirectResponse(url="/")
+    async with SessionLocal() as session:
+        try:
+            game_name = await get_game_name(session, appid)
+            background_url = f"/static/images/background/{appid}.jpg"
+            logging.info("Формируем страницу раздач")
+            return templates.TemplateResponse(
+                "trackers.html",
+                {
+                    "request": request,
+                    "appid": appid,
+                    "game_name": game_name,
+                    "background": background_url,
+                },
+            )
+        except Exception as e:
+            logging.error(f"Ошибка формирования страницы раздач: {str(e)}")
+            print(f"An error occurred while fetching games: {str(e)}")
+            return {"error": "Failed to fetch games data"}
 
 # Страница достижений
 @app.get("/achievements/{appid}", response_class=HTMLResponse)
