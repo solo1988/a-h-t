@@ -4,15 +4,16 @@ import websockets
 from datetime import datetime
 from pydantic import BaseModel
 from steam_api import fetch_game_data, get_achievement_url
-from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks, Query, Form
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from database import init_db, SessionLocal
 from crud import get_games, get_achievements_for_game, get_game_name
-from models import Achievement, Game, PushSubscription, PushSubscriptionCreate
+from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User
 from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
 import uvicorn
@@ -20,6 +21,7 @@ import hashlib
 import hmac
 import time
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 import sqlite3
 from typing import Dict
@@ -27,7 +29,10 @@ import requests
 from pywebpush import webpush, WebPushException
 import os
 from dotenv import load_dotenv
-
+from fastapi_login import LoginManager
+from fastapi_login.exceptions import InvalidCredentialsException
+from passlib.context import CryptContext
+from datetime import timedelta
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -48,6 +53,17 @@ app.add_middleware(SessionMiddleware, SECRET_KEY)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 
+telegram_ids_raw = os.getenv("TELEGRAM_IDS", "")
+telegram_ids = [int(tid.strip()) for tid in telegram_ids_raw.split(",") if tid.strip()]
+
+user_ids = [1, 2]
+user_to_telegram = dict(zip(user_ids, telegram_ids))
+
+manager = LoginManager(SECRET_KEY, token_url='/login', use_cookie=True)
+manager.cookie_name = "auth_token"
+manager.lifetime_seconds = 31536000  # 7 дней = 60 * 60 * 24 * 7
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Настройка логирования
 logging.basicConfig(
@@ -55,6 +71,36 @@ logging.basicConfig(
     level=logging.ERROR,  # Уровень логирования
     format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
+
+
+@manager.user_loader()
+async def load_user(username: str):
+    async with SessionLocal() as session:
+        result = await session.execute(select(User).where(User.username == username))
+        return result.scalar_one_or_none()
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login")
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    user = await load_user(username)
+    if not user or not pwd_context.verify(password, user.hashed_password):
+        raise InvalidCredentialsException
+    token = manager.create_access_token(data={"sub": username}, expires=timedelta(days=365))
+    response = RedirectResponse(url="/", status_code=302)
+    # manager.set_cookie(response, token)
+    response.set_cookie(
+        key=manager.cookie_name,
+        value=token,
+        httponly=True,
+        max_age=31536000,  # 1 год
+        samesite="lax",    # или strict/none в зависимости от нужд
+        secure=False       # True, если используешь HTTPS
+    )
+    return response
 
 
 @app.post("/subscribe")
@@ -75,62 +121,12 @@ async def subscribe(subscription: PushSubscriptionCreate):
             logging.error(f"Ошибка: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка: {e}")
 
-
-def check_telegram_auth(data: dict) -> bool:
-    """
-    Проверяет подпись Telegram для защиты от подмены данных
-    """
-    auth_data = data.copy()
-    hash_check = auth_data.pop("hash")
-    sorted_data = "\n".join(f"{k}={v}" for k, v in sorted(auth_data.items()))
-    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    calculated_hash = hmac.new(
-        secret_key, sorted_data.encode(), hashlib.sha256
-    ).hexdigest()
-
-    # Проверяем подпись
-    if calculated_hash != hash_check:
-        return False
-
-    # Проверяем, что данные получены недавно (защита от повторного использования)
-    auth_time = int(auth_data.get("auth_date", 0))
-    if time.time() - auth_time > 86400:  # 24 часа
-        return False
-
-    return True
-
-
-@app.get("/auth")
-async def auth(request: Request):
-    data = dict(request.query_params)
-
-    if not check_telegram_auth(data):
-        logging.error("Ошибка аутентификации Telegram")
-        raise HTTPException(
-            status_code=403, detail="Ошибка аутентификации Telegram"
-        )
-
-    user_id = int(data["id"])
-
-    if user_id != int(ALLOWED_USER_ID):
-        logging.error("Доступ запрещён")
-        raise HTTPException(status_code=403, detail=f"Доступ запрещён:{user_id} -  {ALLOWED_USER_ID}")
-
-    # ✅ Сохраняем авторизованного пользователя в сессии
-    request.session["user_id"] = user_id
-    return RedirectResponse(url="/")
-
-
-@app.get("/check_auth")
-async def check_auth(request: Request):
-    """
-    Проверяет, авторизован ли пользователь
-    """
-    user_id = request.session.get("user_id")
-    if user_id == ALLOWED_USER_ID:
-        return JSONResponse({"authenticated": True})
-    return JSONResponse({"authenticated": False})
-
+@app.middleware("http")
+async def redirect_unauthed(request: Request, call_next):
+    if request.url.path == "/" and not request.cookies.get(manager.cookie_name):
+        return RedirectResponse(url="/login")
+    response = await call_next(request)
+    return response
 
 # Подключение шаблонов Jinja2
 templates = Jinja2Templates(directory="templates")
@@ -149,17 +145,18 @@ async def startup():
 
 # Главная страница с выводом списка игр
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def home(request: Request, user=Depends(manager)):
+    logging.error(f"авторизован юзер: {user.username, user.id}")
     # Открываем сессию с базой данных
     async with SessionLocal() as session:
         try:
             # Получаем список игр из базы данных
             games = await get_games(
-                session
+                session, user.id
             )  # предполагаем, что get_games возвращает список игр
             logging.info("Загружена главная страница")
             return templates.TemplateResponse(
-                "index.html", {"request": request, "games": games}
+                "index.html", {"request": request, "games": games, "user": user}
             )
         except Exception as e:
             logging.error(f"Ошибка выборки игр главной страницы: {str(e)}")
@@ -170,15 +167,15 @@ async def home(request: Request):
 
 # Страница с раздачами
 @app.get("/trackers/{appid}", response_class=HTMLResponse)
-async def trackers(request: Request, appid: int):
+async def trackers(request: Request, appid: int, user=Depends(manager)):
     # Получаем данные о достижениях из базы данных
     # Проверяем, авторизован ли пользователь
-    user_id = request.session.get("user_id")
-    if user_id != ALLOWED_USER_ID:
-        return RedirectResponse(url="/")
+    # user_id = request.session.get("user_id")
+    # if user_id != ALLOWED_USER_ID:
+    #     return RedirectResponse(url="/")
     async with SessionLocal() as session:
         try:
-            game_name = await get_game_name(session, appid)
+            game_name = await get_game_name(session, appid, user.id)
             background_url = f"/static/images/background/{appid}.jpg"
             logging.info("Формируем страницу раздач")
             return templates.TemplateResponse(
@@ -197,16 +194,16 @@ async def trackers(request: Request, appid: int):
 
 # Страница достижений
 @app.get("/achievements/{appid}", response_class=HTMLResponse)
-async def achievements(request: Request, appid: int):
+async def achievements(request: Request, appid: int, user=Depends(manager)):
     # Получаем данные о достижениях из базы данных
     # Проверяем, авторизован ли пользователь
-    user_id = request.session.get("user_id")
-    if user_id != ALLOWED_USER_ID:
-        return RedirectResponse(url="/")
+    # user_id = request.session.get("user_id")
+    # if user_id != ALLOWED_USER_ID:
+    #     return RedirectResponse(url="/")
     async with SessionLocal() as session:
         try:
-            achievements = await get_achievements_for_game(session, appid)
-            game_name = await get_game_name(session, appid)
+            achievements = await get_achievements_for_game(session, appid, user.id)
+            game_name = await get_game_name(session, appid, user.id)
             background_url = f"/static/images/background/{appid}.jpg"
 
             # Подготовка данных для отображения
@@ -273,6 +270,24 @@ def send_push_notification(subscription, title, body, icon, url):
     except WebPushException as ex:
         logging.error(f"Ошибка при отправке push: {repr(ex)}")
 
+class AchievementData(BaseModel):
+    appid: int
+    achievement_name: str
+    obtained_time: int
+    user_id: int
+
+# Эндпоинт для получения данных и обновления достижения
+@app.post("/api/update_achievement")
+async def update_achievement_endpoint(data: AchievementData):
+    async with SessionLocal() as session:
+        await update_achievement(
+            session=session,
+            appid=data.appid,
+            achievement_name=data.achievement_name,
+            obtained_time=data.obtained_time,
+            user_id=data.user_id
+        )
+        return {"message": "Achievement updated successfully"}
 
 # Функция обновления достижений
 async def update_achievement(
@@ -280,12 +295,14 @@ async def update_achievement(
         appid: int,
         achievement_name: str,
         obtained_time: int,
+        user_id: int,
 ):
     obtained_date = datetime.utcfromtimestamp(obtained_time)
 
     query = select(Achievement).where(
         Achievement.appid == appid,
-        Achievement.name == achievement_name
+        Achievement.name == achievement_name,
+        Achievement.user_id == user_id
     )
     result = await session.execute(query)
     achievement = result.scalar_one_or_none()
@@ -308,7 +325,7 @@ async def update_achievement(
         appid = achievement.appid
 
         # 2. Получаем название игры из таблицы games по appid
-        result = await db.execute(select(Game).filter(Game.appid == appid))
+        result = await db.execute(select(Game).filter(Game.appid == appid).filter(Game.user_id == user_id))
         game = result.scalars().first()
 
         if game is None:
@@ -325,6 +342,7 @@ async def update_achievement(
         message = f"Ачивка в игре {game_name}: {title}\nСсылка: {url}"
 
         # Извлекаем все подписки из базы данных
+        # TODO Поправить рассылки, привязать по ид
         subscriptions_result = await db.execute(select(PushSubscription))
         subscriptions = subscriptions_result.scalars().all()
 
@@ -333,13 +351,17 @@ async def update_achievement(
             send_push_notification(sub, title, body, icon, url)
 
         # Отправляем сообщение и изображение в Telegram
-        send_telegram_message_with_image(ALLOWED_USER_ID, message, BOT_TOKEN, icon)
-        logging.info(f"Отправили уведомление в телеграм {title}")
+        # TODO сделать проверку по ид и рассылку обоим в зависимости от ид
+        for tg_user_id, telegram_id in user_to_telegram.items():
+            if(user_id == tg_user_id):
+                send_telegram_message_with_image(telegram_id, message, BOT_TOKEN, icon)
+                logging.info(f"Отправили уведомление в телеграм {title}")
 
 
 
 async def websocket_listener():
     uri = "ws://192.168.1.111:8082"
+    user_id = 1
     while True:
         try:
             async with websockets.connect(uri) as websocket:
@@ -355,6 +377,7 @@ async def websocket_listener():
                             int(data["appID"]),
                             data["achievement"],
                             obtained_time,
+                            user_id
                         ))
         except Exception as e:
             logging.error(f"Ошибка веб-сокета: {e}")
@@ -362,7 +385,7 @@ async def websocket_listener():
             await asyncio.sleep(5)  # Ждем перед повторным подключением
 
 @app.post("/add_game")
-async def add_game(request: Request):
+async def add_game(request: Request, user=Depends(manager)):
     # Открываем сессию с базой данных
     async with SessionLocal() as db:
         # Читаем "сырые" данные из запроса
@@ -383,7 +406,7 @@ async def add_game(request: Request):
 
         # Дальше выполняем оригинальную логику:
         existing_game = await db.execute(
-            select(Game).filter(Game.appid == appid)
+            select(Game).filter(Game.appid == appid).filter(Game.user_id == user.id)
         )
         if existing_game.scalar_one_or_none():
             logging.error("Игра уже добавлена")
@@ -399,7 +422,7 @@ async def add_game(request: Request):
         game_name = game_data["game"]["gameName"]
 
         # Добавляем игру в базу
-        new_game = Game(appid=appid, name=game_name)
+        new_game = Game(appid=appid, name=game_name, user_id=user.id)
         db.add(new_game)
 
         achievements = (
@@ -424,6 +447,7 @@ async def add_game(request: Request):
                 icon=ach.get("icon", ""),  # Если есть иконка
                 icongray=icongray_url,  # Добавляем ссылку на иконку
                 obtained_date=None,  # Не получено на старте
+                user_id=user.id #ид пользователя
             )
             db.add(achievement)
 
@@ -442,9 +466,8 @@ async def add_game(request: Request):
 # Настроим логирование
 # logging.basicConfig(level=logging.DEBUG)
 
-
 @app.post("/update_paths")
-async def update_paths(request: Request):
+async def update_paths(request: Request, user=Depends(manager)):
     # Открываем сессию с базой данных
     async with SessionLocal() as db:
         data = await request.json()
@@ -481,7 +504,7 @@ async def update_paths(request: Request):
                 """
                 UPDATE achievements
                 SET icongray = REPLACE(icongray, :old_substring, :new_substring)
-                WHERE appid = :appid
+                WHERE appid = :appid AND user_id = :user_id
             """
             )
             await db.execute(
@@ -490,6 +513,7 @@ async def update_paths(request: Request):
                     "appid": appid,
                     "old_substring": old_substring,
                     "new_substring": new_substring,
+                    "user_id": user.id,
                 },
             )
             await db.commit()
@@ -521,7 +545,7 @@ async def send_test_notification():
 
     async with SessionLocal() as db:
         # 1. Получаем appid из таблицы achievements по названию достижения
-        result = await db.execute(select(Achievement).where(Achievement.name == achiev_name))
+        result = await db.execute(select(Achievement).where(Achievement.name == achiev_name).where(Achievement.user_id == 1))
         achievement = result.scalars().first()
 
         if achievement is None:
@@ -530,7 +554,7 @@ async def send_test_notification():
         appid = achievement.appid
 
         # 2. Получаем название игры из таблицы games по appid
-        result = await db.execute(select(Game).filter(Game.appid == appid))
+        result = await db.execute(select(Game).filter(Game.appid == appid).filter(Game.user_id == 1))
         game = result.scalars().first()
 
         if game is None:
@@ -555,8 +579,9 @@ async def send_test_notification():
             send_push_notification(sub, title, body, icon, url)
 
         # Отправляем сообщение и изображение в Telegram
-        send_telegram_message_with_image(ALLOWED_USER_ID, message, BOT_TOKEN, icon)
-        logging.info(f"Отправили уведомление в телеграм {title}")
+        for user_id, telegram_id in user_to_telegram.items():
+            send_telegram_message_with_image(telegram_id, message, BOT_TOKEN, icon)
+            logging.error(f"Отправили уведомление в телеграм {title} юзеру {telegram_id}")
 
     return {"message": "Тестовое уведомление отправлено"}
 

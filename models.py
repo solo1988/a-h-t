@@ -5,12 +5,22 @@ from database import Base
 import datetime
 from pydantic import BaseModel
 
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True)
+    hashed_password = Column(String)
+    games = relationship("Game", back_populates="user")  # 👈 связь с играми
+    achievements = relationship("Achievement", back_populates="user")  # 👈 связь с ачивками
+
 class Game(Base):
     __tablename__ = "games"
     id = Column(Integer, primary_key=True, index=True)
-    appid = Column(Integer, unique=True, nullable=False)
+    appid = Column(Integer, nullable=False)
     name = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     achievements = relationship("Achievement", back_populates="game")
+    user = relationship("User", back_populates="games")  # 👈 связь с пользователем
 
 class Achievement(Base):
     __tablename__ = "achievements"
@@ -24,6 +34,8 @@ class Achievement(Base):
     icongray = Column(String)
     obtained_date = Column(DateTime, default=None, nullable=True)
     game = relationship("Game", back_populates="achievements")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="achievements")  # 👈 связь с пользователем
 
     @property
     def earned(self):
