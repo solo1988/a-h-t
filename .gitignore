@@ -182,3 +182,4 @@ schemas.py
 .env
 static/images/header/
 static/images/background/
+games.db.bak
