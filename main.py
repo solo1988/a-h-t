@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
-from database import init_db, SessionLocal
+from database import init_db, SessionLocal, SyncSessionLocal
 from crud import get_games, get_achievements_for_game, get_game_name
 from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User
 from sqlalchemy.future import select
@@ -68,7 +68,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Настройка логирования
 logging.basicConfig(
     filename="app.log",  # Имя файла для записи логов
-    level=logging.ERROR,  # Уровень логирования
+    level=logging.INFO,  # Уровень логирования
     format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
 
@@ -84,6 +84,7 @@ async def load_user(username: str):
 def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
+
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     user = await load_user(username)
@@ -97,24 +98,39 @@ async def login(request: Request, username: str = Form(...), password: str = For
         value=token,
         httponly=True,
         max_age=31536000,  # 1 год
-        samesite="lax",    # или strict/none в зависимости от нужд
-        secure=False       # True, если используешь HTTPS
+        samesite="lax",  # или strict/none в зависимости от нужд
+        secure=False  # True, если используешь HTTPS
     )
     return response
 
+class SubscriptionCheckRequest(BaseModel):
+    endpoint: str
 
+@app.post("/check_subscription")
+async def check_subscription(data: SubscriptionCheckRequest, user=Depends(manager)):
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(PushSubscription).where(
+                PushSubscription.endpoint == data.endpoint,
+                PushSubscription.user_id == user.id
+            )
+        )
+        sub = result.scalar_one_or_none()
+        return {"exists": sub is not None}
+    
 @app.post("/subscribe")
-async def subscribe(subscription: PushSubscriptionCreate):
+async def subscribe(subscription: PushSubscriptionCreate, user=Depends(manager)):
     async with SessionLocal() as db:
         new_sub = PushSubscription(
             endpoint=subscription.endpoint,
             p256dh=subscription.p256dh,
             auth=subscription.auth,
+            user_id=user.id  # Привязка к авторизованному пользователю
         )
         db.add(new_sub)
         try:
             await db.commit()
-            logging.info("Подписка сохранена")
+            logging.info(f"Подписка сохранена для user_id={user.id}")
             return {"message": "Подписка сохранена"}
         except Exception as e:
             await db.rollback()
@@ -127,6 +143,7 @@ async def redirect_unauthed(request: Request, call_next):
         return RedirectResponse(url="/login")
     response = await call_next(request)
     return response
+
 
 # Подключение шаблонов Jinja2
 templates = Jinja2Templates(directory="templates")
@@ -146,7 +163,7 @@ async def startup():
 # Главная страница с выводом списка игр
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user=Depends(manager)):
-    logging.error(f"авторизован юзер: {user.username, user.id}")
+    logging.info(f"авторизован юзер: {user.username, user.id}")
     # Открываем сессию с базой данных
     async with SessionLocal() as session:
         try:
@@ -164,6 +181,7 @@ async def home(request: Request, user=Depends(manager)):
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch games data: {str(e)}"
             )
+
 
 # Страница с раздачами
 @app.get("/trackers/{appid}", response_class=HTMLResponse)
@@ -191,6 +209,7 @@ async def trackers(request: Request, appid: int, user=Depends(manager)):
             logging.error(f"Ошибка формирования страницы раздач: {str(e)}")
             print(f"An error occurred while fetching games: {str(e)}")
             return {"error": "Failed to fetch games data"}
+
 
 # Страница достижений
 @app.get("/achievements/{appid}", response_class=HTMLResponse)
@@ -268,13 +287,26 @@ def send_push_notification(subscription, title, body, icon, url):
         )
         logging.info(f"Push отправлен.Содержимое {payload} Статус: {response.status_code}")
     except WebPushException as ex:
-        logging.error(f"Ошибка при отправке push: {repr(ex)}")
+        logging.error(f"Ошибка при отправке push: {repr(ex)} | Endpoint: {subscription.endpoint}")
+
+        if "404" in str(ex):
+            try:
+                with SyncSessionLocal() as db:
+                    db_subscription = db.query(PushSubscription).filter_by(endpoint=subscription.endpoint).first()
+                    if db_subscription:
+                        db.delete(db_subscription)
+                        db.commit()
+                        logging.info(f"Удалена подписка с endpoint: {subscription.endpoint}")
+            except Exception as e:
+                logging.error(f"Ошибка при удалении подписки: {e}")
+
 
 class AchievementData(BaseModel):
     appid: int
     achievement_name: str
     obtained_time: int
     user_id: int
+
 
 # Эндпоинт для получения данных и обновления достижения
 @app.post("/api/update_achievement")
@@ -288,6 +320,7 @@ async def update_achievement_endpoint(data: AchievementData):
             user_id=data.user_id
         )
         return {"message": "Achievement updated successfully"}
+
 
 # Функция обновления достижений
 async def update_achievement(
@@ -318,7 +351,9 @@ async def update_achievement(
         url = achievement.icongray
 
         async with SessionLocal() as db:
-            subscriptions = await db.execute(select(PushSubscription))
+            subscriptions = await db.execute(
+                select(PushSubscription).where(PushSubscription.user_id == user_id)
+            )
             for sub in subscriptions.scalars():
                 send_push_notification(sub, title, body, icon, url)
 
@@ -353,10 +388,9 @@ async def update_achievement(
         # Отправляем сообщение и изображение в Telegram
         # TODO сделать проверку по ид и рассылку обоим в зависимости от ид
         for tg_user_id, telegram_id in user_to_telegram.items():
-            if(user_id == tg_user_id):
+            if (user_id == tg_user_id):
                 send_telegram_message_with_image(telegram_id, message, BOT_TOKEN, icon)
                 logging.info(f"Отправили уведомление в телеграм {title}")
-
 
 
 async def websocket_listener():
@@ -370,7 +404,7 @@ async def websocket_listener():
                     async with SessionLocal() as session:
                         # Прибавляем 3 часа прямо здесь, чтобы не делать это в update_achievement
                         obtained_time = int(data["time"]) + 3 * 3600  # Добавляем 3 часа (в секундах)
-                        
+
                         # Здесь создаем фоновую задачу
                         asyncio.create_task(update_achievement(
                             session,
@@ -380,9 +414,10 @@ async def websocket_listener():
                             user_id
                         ))
         except Exception as e:
-            logging.error(f"Ошибка веб-сокета: {e}")
-            print(f"Ошибка веб-сокета: {e}")
+            # logging.error(f"Ошибка веб-сокета: {e}")
+            # print(f"Ошибка веб-сокета: {e}")
             await asyncio.sleep(5)  # Ждем перед повторным подключением
+
 
 @app.post("/add_game")
 async def add_game(request: Request, user=Depends(manager)):
@@ -447,7 +482,7 @@ async def add_game(request: Request, user=Depends(manager)):
                 icon=ach.get("icon", ""),  # Если есть иконка
                 icongray=icongray_url,  # Добавляем ссылку на иконку
                 obtained_date=None,  # Не получено на старте
-                user_id=user.id #ид пользователя
+                user_id=user.id  # ид пользователя
             )
             db.add(achievement)
 
@@ -545,7 +580,8 @@ async def send_test_notification():
 
     async with SessionLocal() as db:
         # 1. Получаем appid из таблицы achievements по названию достижения
-        result = await db.execute(select(Achievement).where(Achievement.name == achiev_name).where(Achievement.user_id == 1))
+        result = await db.execute(
+            select(Achievement).where(Achievement.name == achiev_name).where(Achievement.user_id == 1))
         achievement = result.scalars().first()
 
         if achievement is None:

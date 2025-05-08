@@ -48,6 +48,9 @@ class PushSubscription(Base):
     endpoint = Column(String, nullable=False)
     p256dh = Column(String, nullable=False)
     auth = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    user = relationship("User")
 
 
 class PushSubscriptionCreate(BaseModel):
