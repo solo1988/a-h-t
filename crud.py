@@ -88,7 +88,7 @@ async def get_games(db: AsyncSession, id: int):
     try:
         result = await db.execute(select(Game).filter(Game.user_id == id))
         games = result.scalars().all()
-        logging.info(f"Получены игры : {games}")
+        #logging.info(f"Получены игры : {games}")
         print(f"Fetched games: {games}")  # Логируем все игры
 
         async with aiohttp.ClientSession() as session:
@@ -96,7 +96,7 @@ async def get_games(db: AsyncSession, id: int):
                 total_achievements = await get_total_achievements_for_game(db, game.appid, id)
                 earned_achievements = await get_earned_achievements_for_game(db, game.appid, id)
                 last_obtained_date = await get_last_obtained_date_for_game(db, game.appid, id)
-                logging.info(f"Игра {game.name} - Всего достижений: {total_achievements}, получено достижений: {earned_achievements}")
+                #logging.info(f"Игра {game.name} - Всего достижений: {total_achievements}, получено достижений: {earned_achievements}")
                 print(f"Game {game.name} - Total Achievements: {total_achievements}, Earned Achievements: {earned_achievements}")  # Логируем достижения для каждой игры
 
                 game.total_achievements = total_achievements
@@ -147,7 +147,7 @@ async def get_total_achievements_for_game(db: AsyncSession, appid: int, id: int)
     try:
         result = await db.execute(select(Achievement).filter(Achievement.appid == appid).filter(Achievement.user_id == id))
         achievements = result.scalars().all()
-        logging.info(f"Всего достижений для appid {appid}: {len(achievements)}")
+        #logging.info(f"Всего достижений для appid {appid}: {len(achievements)}")
         print(f"Total achievements for appid {appid}: {len(achievements)}")  # Логируем общее количество достижений
         return len(achievements)
     except Exception as e:
@@ -166,7 +166,7 @@ async def get_earned_achievements_for_game(db: AsyncSession, appid: int, id: int
             .filter(Achievement.obtained_date != None)  # Фильтрация по полученным достижениям
         )
         earned_achievements = result.scalar_one()  # Получаем количество
-        logging.info(f"Получено ачивок для игры appid {appid}: {earned_achievements}")
+        #logging.info(f"Получено ачивок для игры appid {appid}: {earned_achievements}")
         print(f"Earned achievements for appid {appid}: {earned_achievements}")  # Логируем количество полученных достижений
         return earned_achievements
     except Exception as e:

@@ -117,7 +117,7 @@ async def check_subscription(data: SubscriptionCheckRequest, user=Depends(manage
         )
         sub = result.scalar_one_or_none()
         return {"exists": sub is not None}
-    
+
 @app.post("/subscribe")
 async def subscribe(subscription: PushSubscriptionCreate, user=Depends(manager)):
     async with SessionLocal() as db:
@@ -171,7 +171,7 @@ async def home(request: Request, user=Depends(manager)):
             games = await get_games(
                 session, user.id
             )  # предполагаем, что get_games возвращает список игр
-            logging.info("Загружена главная страница")
+            logging.info(f"Загружена главная страница для {user.username}")
             return templates.TemplateResponse(
                 "index.html", {"request": request, "games": games, "user": user}
             )
@@ -195,7 +195,7 @@ async def trackers(request: Request, appid: int, user=Depends(manager)):
         try:
             game_name = await get_game_name(session, appid, user.id)
             background_url = f"/static/images/background/{appid}.jpg"
-            logging.info("Формируем страницу раздач")
+            logging.info(f"Формируем страницу раздач игры {game_name.name }")
             return templates.TemplateResponse(
                 "trackers.html",
                 {
@@ -237,7 +237,7 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
                 for achievement in achievements
             ]
 
-            logging.info("Загружена страница ачивок")
+            logging.info(f"Загружена страница ачивок игры {game_name.name }")
             return templates.TemplateResponse(
                 "achievements.html",
                 {
@@ -319,6 +319,7 @@ async def update_achievement_endpoint(data: AchievementData):
             obtained_time=data.obtained_time,
             user_id=data.user_id
         )
+        logging.info(f"Отправили ачивку с удаленного вебсокета, {data.achievement_name}")
         return {"message": "Achievement updated successfully"}
 
 
@@ -350,6 +351,7 @@ async def update_achievement(
         icon = achievement.icon
         url = achievement.icongray
 
+        # Пуш рассылки
         async with SessionLocal() as db:
             subscriptions = await db.execute(
                 select(PushSubscription).where(PushSubscription.user_id == user_id)
@@ -374,21 +376,11 @@ async def update_achievement(
         url = achievement.icongray
 
         # Обновляем сообщение для Telegram с названием игры
-        message = f"Ачивка в игре {game_name}: {title}\nСсылка: {url}"
-
-        # Извлекаем все подписки из базы данных
-        # TODO Поправить рассылки, привязать по ид
-        subscriptions_result = await db.execute(select(PushSubscription))
-        subscriptions = subscriptions_result.scalars().all()
-
-        # Отправка уведомления каждой подписке
-        for sub in subscriptions:
-            send_push_notification(sub, title, body, icon, url)
+        message = f"Ачивка в игре {game_name }: {title}\nСсылка: {url}"
 
         # Отправляем сообщение и изображение в Telegram
-        # TODO сделать проверку по ид и рассылку обоим в зависимости от ид
         for tg_user_id, telegram_id in user_to_telegram.items():
-            if (user_id == tg_user_id):
+            if user_id == tg_user_id:
                 send_telegram_message_with_image(telegram_id, message, BOT_TOKEN, icon)
                 logging.info(f"Отправили уведомление в телеграм {title}")
 
@@ -413,6 +405,7 @@ async def websocket_listener():
                             obtained_time,
                             user_id
                         ))
+                        logging.info("Отправили ачивку с локального вебсокета")
         except Exception as e:
             # logging.error(f"Ошибка веб-сокета: {e}")
             # print(f"Ошибка веб-сокета: {e}")
@@ -622,7 +615,7 @@ async def send_test_notification():
     return {"message": "Тестовое уведомление отправлено"}
 
 
-def send_telegram_message_with_image(chat_id: str, message: str, bot_token: str, image_url: str):
+def send_telegram_message_with_image(chat_id: int, message: str, bot_token: str, image_url: str):
     # URL для отправки фото
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
 
