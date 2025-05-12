@@ -8,6 +8,7 @@
     <link rel="manifest" href="/static/manifest.json?v=4">
     <meta name="theme-color" content="#000000">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/static/main.css">
 </head>
 <body>
@@ -30,17 +31,27 @@
         </div>
         <div class="row">
             {% for game in games %}
+            {% set earned = game.earned_achievements %}
+            {% set total = game.total_achievements %}
+            {% set percent = (earned / total * 100) if total > 0 else 0 %}
+            {% set border = 'border-5 border-warning' if percent > 99 else 'border-0' %}
             <div class="col-md-4 my-3">
-                <div class="card d-flex flex-column h-100 border-0">
+                <div class="card d-flex flex-column h-100 {{border}} position-relative">
+                    <div class="position-absolute top-0 start-100 translate-middle">
+                        {% if percent > 99 %}
+                        <i class="bi bi-star-fill fs-1 text-danger"></i>
+                        {% endif %}
+                    </div>
                     <img class="card-img" src="{{ game.background }}">
                     <div class="card-img-overlay p-0 d-flex flex-column">
                         <a href="/achievements/{{ game.appid }}" class="stretched-link"></a>
-                        {% set earned = game.earned_achievements %}
-                        {% set total = game.total_achievements %}
-                        {% set percent = (earned / total * 100) if total > 0 else 0 %}
                         <p class="card-text py-2 bg-dark bg-opacity-75 text-white text-center mt-auto rounded">
+                            {% if percent > 99 %}
+                            <strong>ПЛАТИНА !!!</strong>
+                            {% else %}
                             <strong>Достижений: {{ earned }} из {{ total }} ({{ percent|round(0, 'floor') }}%
                                 получено)</strong>
+                            {% endif %}
                         </p>
                     </div>
                 </div>
@@ -49,170 +60,11 @@
         </div>
     </div>
     <script src="/static/install.js"></script>
-    <script>
-        document.getElementById("addGameForm").addEventListener("submit", async function (event) {
-            event.preventDefault();  // Останавливаем стандартную отправку формы
-
-            let appid = document.getElementById("appidInput").value.trim();  // Получаем appid
-            console.log("Отправляем appid:", appid);  // Логируем в консоли браузера
-
-            let response = await fetch("/add_game", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({appid: appid}),
-            });
-
-            let result = await response.json();
-            if (response.ok) {
-                alert("Игра добавлена!");
-            } else {
-                alert("Ошибка: " + JSON.stringify(result));  // Показываем ошибку
-            }
-        });
-        const VAPID_PUBLIC_KEY = "BPbVTP_DQbdgTrMuOi4GW6eQ8F5vVezzxsAYQZs1_cjTEF079H3EqgeOvhiSD7ZxgBzS5EoFT2nRrGX5Z3AOZ2I";  // Замените на свой публичный ключ
-
-        document.addEventListener("DOMContentLoaded", function () {
-            if ("serviceWorker" in navigator) {
-                const version = Date.now();  // 👈 добавляем метку времени
-                navigator.serviceWorker.register(`/static/sw.js?v=${version}`)
-                    .then((reg) => {
-                        console.log("Service Worker зарегистрирован из фронта!", reg);
-                        reg.update();  // Принудительно обновляем воркер
-                        initPushSubscription(reg);
-                        // unsubscribePush(reg);
-                    })
-                    .catch((err) => {
-                        console.error("Ошибка регистрации Service Worker:", err);
-                    });
-            }
-        });
-
-        async function unsubscribePush(registration) {
-            try {
-                const subscription = await registration.pushManager.getSubscription();
-
-                if (subscription) {
-                    console.log("Удаляем подписку с endpoint:", subscription.endpoint);
-
-                    const successful = await subscription.unsubscribe();
-                } else {
-                    console.log("Подписка не найдена");
-                }
-            } catch (error) {
-                console.error("Ошибка при удалении подписки:", error);
-            }
-        }
-
-
-        async function initPushSubscription(registration) {
-    console.log("Пробуем подписку");
-
-    if (!("Notification" in window)) {
-        console.log("Уведомления не поддерживаются");
-        return;
-    }
-
-    const permission = await Notification.requestPermission();
-    console.log("Разрешение на уведомления:", permission);
-    if (permission !== "granted") {
-        console.log("Пользователь не разрешил уведомления");
-        return;
-    }
-
-    try {
-        const existingSubscription = await registration.pushManager.getSubscription();
-        console.log("Проверка существующей подписки", existingSubscription);
-
-        if (!existingSubscription) {
-            console.log("Создаем новую подписку...");
-            const newSubscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-
-            const rawKeys = newSubscription.toJSON().keys;
-            const payload = {
-                endpoint: newSubscription.endpoint,
-                p256dh: rawKeys.p256dh,
-                auth: rawKeys.auth
-            };
-
-            console.log("Отправляем подписку на сервер:", payload);
-            await sendSubscriptionToServer(payload);
-
-        } else {
-            console.log("Уже есть подписка", existingSubscription);
-
-            // 🔍 Проверяем наличие подписки в базе
-            const checkResp = await fetch("/check_subscription", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ endpoint: existingSubscription.endpoint })
-            });
-
-            const checkResult = await checkResp.json();
-            if (!checkResp.ok || !checkResult.exists) {
-                console.warn("Подписка не найдена на сервере, удаляем...");
-
-                await unsubscribePush(registration);
-                location.reload();  // 🔄 перезагрузка страницы
-            } else {
-                console.log("Подписка в базе подтверждена");
-            }
-        }
-    } catch (err) {
-        console.error("Ошибка подписки:", err);
-    }
-}
-
-
-        async function sendSubscriptionToServer(subscription) {
-            const response = await fetch('/subscribe', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(subscription)
-            });
-
-            if (response.ok) {
-                console.log("Подписка отправлена на сервер");
-            } else {
-                console.error("Ошибка при отправке подписки на сервер", await response.text());
-            }
-        }
-
-        function urlB64ToUint8Array(base64String) {
-            const padding = '='.repeat((4 - base64String.length % 4) % 4);
-            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-            const rawData = atob(base64);
-            return new Uint8Array([...rawData].map(char => char.charCodeAt(0)));
-        }
-    </script>
+    <script src="/static/subscription.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
 </div>
-<script>
-    let deferredPrompt;
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault(); // Откладываем показ баннера
-        deferredPrompt = e; // Сохраняем событие
-        document.getElementById('install-btn').style.display = 'block'; // Показываем кнопку
-    });
-
-    document.getElementById('install-btn').addEventListener('click', async () => {
-        if (deferredPrompt) {
-            deferredPrompt.prompt(); // Показываем баннер установки
-            const choiceResult = await deferredPrompt.userChoice;
-            console.log('Результат установки:', choiceResult.outcome);
-            deferredPrompt = null; // Сбрасываем
-            document.getElementById('install-btn').style.display = 'none';
-        }
-    });
-</script>
+<!--<script src="/static/installer.js"></script>-->
 </body>
 </html>
