@@ -1,9 +1,17 @@
 # models.py
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
 from pydantic import BaseModel
+
+class Release(Base):
+    __tablename__ = "releases"
+
+    appid = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    release_date = Column(String, nullable=True)
+    release_date_checked = Column(Boolean, default=False)
 
 class User(Base):
     __tablename__ = 'users'

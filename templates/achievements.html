@@ -59,7 +59,7 @@
                     <a href="{{ achievement.link }}" target="_blank" class="stretched-link"></a>
                     <p class="card-text small fst-italic mt-auto">
                         {% if achievement.earned %}
-                        Получено: {{ achievement.earned_date }}
+                        Получено: {{ achievement.earned_date.strftime('%d.%m.%Y %H:%M:%S') }}
                         {% else %}
                         Не получено
                         {% endif %}
@@ -197,6 +197,15 @@
     });
 </script>
 <script>
+    function parseCustomDate(dateStr) {
+        // Пример строки: "05.15.2025 21:01:21"
+        const match = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})/);
+        if (!match) return new Date(0); // Возвращаем минимальную дату, если не парсится
+
+        const [, day, month, year, hour, minute, second] = match.map(Number);
+        return new Date(year, month - 1, day, hour, minute, second);
+    }
+
     function sortAchievementsByDate() {
         const container = document.getElementById("achievementsContainer");
         const cardsArray = Array.from(container.querySelectorAll(".achievement-card-wrapper"));
@@ -205,16 +214,15 @@
             const aText = a.querySelector(".card-text").textContent.trim();
             const bText = b.querySelector(".card-text").textContent.trim();
 
-            const aDateMatch = aText.match(/Получено:\s+([0-9:\- ]+)/);
-            const bDateMatch = bText.match(/Получено:\s+([0-9:\- ]+)/);
+            const aDateMatch = aText.match(/Получено:\s+([0-9.: ]+)/);
+            const bDateMatch = bText.match(/Получено:\s+([0-9.: ]+)/);
 
-            const aDate = aDateMatch ? new Date(aDateMatch[1]) : new Date(0);
-            const bDate = bDateMatch ? new Date(bDateMatch[1]) : new Date(0);
+            const aDate = aDateMatch ? parseCustomDate(aDateMatch[1]) : new Date(0);
+            const bDate = bDateMatch ? parseCustomDate(bDateMatch[1]) : new Date(0);
 
-            return bDate - aDate; // По убыванию
+            return bDate - aDate; // Сортировка по убыванию (новее → старее)
         });
 
-        // Очищаем и пересобираем контейнер
         container.innerHTML = "";
         cardsArray.forEach(card => container.appendChild(card));
     }
