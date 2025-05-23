@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Информация об игре{% endblock %}
+
+{% block included_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css"/>{% endblock %}
+
+{% block white_bg %}
+<div class="white-tint"></div>{% endblock %}
+
+{% block content %}
+<div class="container my-4" id="game-container">
+    <div class="text-center">
+        <div class="spinner-border" role="status" id="loading-spinner">
+            <span class="visually-hidden">Загрузка...</span>
+        </div>
+        <p>Загрузка данных об игре...</p>
+    </div>
+</div>{% endblock %}
+
+{% block included_js %}
+<script>
+    const appid = "{{ appid }}";  // Передать appid из роутинга сервера в шаблон
+
+    async function fetchGameDetails(appid) {
+        const url = `/api/steam_appdetails/${appid}`;
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Ошибка сети');
+            const data = await response.json();
+
+            if (!data[appid].success) {
+                showError('Информация об игре не найдена');
+                return;
+            }
+
+            renderGame(data[appid].data, appid);
+            Fancybox.bind("[data-fancybox='gallery']", {});
+        } catch (error) {
+            showError('Ошибка при загрузке данных: ' + error.message);
+        }
+    }
+
+    function showError(message) {
+        const container = document.getElementById('game-container');
+        container.innerHTML = `
+            <div class="alert alert-danger" role="alert">${message}</div>
+        `;
+    }
+
+    function renderGame(game, appid) {
+        const container = document.getElementById('game-container');
+
+        const genres = game.genres ? game.genres.map(g => g.description).join(', ') : 'Нет данных';
+        const developers = game.developers ? game.developers.join(', ') : 'Нет данных';
+        const publishers = game.publishers ? game.publishers.join(', ') : 'Нет данных';
+
+        container.innerHTML = `
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <img src="${game.header_image}" alt="${game.name}" class="img-fluid rounded mb-3" />
+                    <div class="my-2"><strong>Разработчик:</strong> ${developers}</div>
+                    <div class="my-2"><strong>Издатель:</strong> ${publishers}</div>
+                    <div class="my-2"><strong>Жанры:</strong> ${genres}</div>
+                    <div class="my-2"><strong>Дата релиза:</strong> ${game.release_date && game.release_date.date ? game.release_date.date : 'Нет данных'}</div>
+                    <div class="my-2"><strong>Appid:</strong> {{ appid }}</div>
+                    <form id="addGameFormRelease" class="mt-3">
+                        <input type="hidden" id="appidInputRelease" value="{{ appid }}">
+                        <button type="submit" class="btn btn-primary">Добавить</button>
+                    </form>
+                </div>
+                <div class="col-md-8 mb-3">
+                    <h1>${game.name}</h1>
+                    <div>${game.short_description}</div>
+                    <hr/>
+                    <div>${game.about_the_game ? game.about_the_game : ''}</div>
+                    ${game.screenshots && game.screenshots.length > 0 ? `
+                        <hr/>
+                        <h5>Скриншоты</h5>
+                        <div class="d-flex flex-wrap gap-2 justify-content-center">
+                            ${game.screenshots.map(s => `
+                                <a href="${s.path_full}" data-fancybox="gallery">
+                                    <img src="${s.path_thumbnail}" class="img-fluid" style="max-width: 180px;" alt="Screenshot" />
+                                </a>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    ${game.website ? `
+                        <hr/>
+                        <div>
+                        <a href="${game.website}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Официальный сайт</a>
+                        <a href="/trackers/${appid}" rel="noopener noreferrer" class="btn btn-danger">Поиск на трекерах</a>
+                        </div>
+                    ` : `<hr/><div><a href="/trackers/${appid}" class="btn btn-danger">Поиск на трекерах</a></div>`}
+                </div>
+            </div>
+        `;
+
+        // Важно: навешиваем обработчик ТОЛЬКО после вставки HTML
+        const form = document.getElementById("addGameFormRelease");
+        if (form) {
+            form.addEventListener("submit", async function (event) {
+                event.preventDefault();
+
+                let appid = document.getElementById("appidInputRelease").value.trim();
+                console.log("Отправляем appid:", appid);
+
+                let response = await fetch("/add_game", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({appid: appid}),
+                });
+
+                let result = await response.json();
+                if (response.ok) {
+                    alert("Игра добавлена!");
+                } else {
+                    alert("Ошибка: " + JSON.stringify(result));
+                }
+            });
+        }
+
+        container.querySelectorAll('.col-md-8 img').forEach(img => {
+            img.classList.add('img-fluid');
+            img.classList.add('d-block');
+            img.classList.add('my-3');
+            img.classList.add('mx-auto');
+        });
+    }
+
+    fetchGameDetails(appid);
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
+{% endblock %}

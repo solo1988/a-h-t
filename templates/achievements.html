@@ -1,14 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Достижения для {{ game_name.name }}</title>
-    <link rel="shortcut icon" href="/static/favicon.ico">
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#000000">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
+{% extends "base.html" %}
+
+{% block title %}Достижения для {{ game_name.name }}{% endblock %}
+
+{% block main_css %}{% endblock %}
+
+{% block included_css %}    <style>
         .background-overlay {
             position: fixed;
             top: 0;
@@ -19,20 +15,15 @@
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
-            opacity: 0.9;
+            opacity: 0.6;
             z-index: -1;
             pointer-events: none;
         }
-    </style>
-</head>
-<body class="text-white">
-<div class="background-overlay"></div>
-<div class="container mt-5">
-    <h1 class="text-center mb-4">Достижения {{ game_name.name }}</h1>
+    </style>{% endblock %}
 
-    <!-- Кнопка назад -->
+{% block content %}    <h1 class="text-center mb-4">Достижения {{ game_name.name }}</h1>
+
     <div class="btn-group btn-group-sm" role="group" aria-label="Small button group">
-        <a href="/" class="btn btn-secondary mb-3">Назад</a>
         <button type="button" class="btn btn-primary text-white mb-3" data-bs-toggle="modal"
                 data-bs-target="#editPathsModal" data-appid="{{ appid }}">
             Исправить пути
@@ -110,13 +101,9 @@
                         aria-label="Close"></button>
             </div>
         </div>
-    </div>
-</div>
+    </div>{% endblock %}
 
-<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
-
-<!-- JavaScript для фильтрации достижений -->
+{% block included_js %}<!-- JavaScript для фильтрации достижений -->
 <script>
     // Получаем элементы чекбокса и контейнера с достижениями
     const filterCheckbox = document.getElementById("filterCheckbox");
@@ -232,7 +219,4 @@
         sortAchievementsByDate();
         updateAchievementsVisibility();
     });
-</script>
-
-</body>
-</html>
+</script>{% endblock %}

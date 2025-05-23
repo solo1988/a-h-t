@@ -19,6 +19,7 @@ document.getElementById("addGameForm").addEventListener("submit", async function
         alert("Ошибка: " + JSON.stringify(result));  // Показываем ошибку
     }
 });
+
 const VAPID_PUBLIC_KEY = "BPbVTP_DQbdgTrMuOi4GW6eQ8F5vVezzxsAYQZs1_cjTEF079H3EqgeOvhiSD7ZxgBzS5EoFT2nRrGX5Z3AOZ2I";  // Замените на свой публичный ключ
 
 document.addEventListener("DOMContentLoaded", function () {

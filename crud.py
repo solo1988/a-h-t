@@ -1,17 +1,23 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import Game, Achievement
+from models import Game, Achievement, Release
 import logging
 from datetime import datetime
 import os
 import aiohttp
 from pathlib import Path
+from dateutil import parser
+from collections import defaultdict
+from sqlalchemy import not_, or_, func, literal
+from typing import Optional, Union
 
 STATIC_DIR = Path(__file__).parent / "static" / "images" / "header"
 BACKGROUND_DIR = Path(__file__).parent / "static" / "images" / "background"
 
+
 async def check_background_exists_local(appid: int) -> bool:
     return (BACKGROUND_DIR / f"{appid}.jpg").exists()
+
 
 async def ensure_background_image(session: aiohttp.ClientSession, appid: int) -> str:
     BACKGROUND_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,19 +38,21 @@ async def ensure_background_image(session: aiohttp.ClientSession, appid: int) ->
 async def check_image_exists_local(appid: int) -> bool:
     return (STATIC_DIR / f"{appid}.jpg").exists()
 
+
 async def download_image(session: aiohttp.ClientSession, url: str, path: Path) -> bool:
     try:
         async with session.get(url) as resp:
             if resp.status == 200:
                 with open(path, "wb") as f:
                     f.write(await resp.read())
-                logging.info(f"[Загрузка] Скачано изображение: {url}")
+                #logging.info(f"[Загрузка] Скачано изображение: {url}")
                 return True
             else:
-                logging.warning(f"[Загрузка] Не удалось скачать изображение: {url}, статус {resp.status}")
+                logging.error(f"[Загрузка] Не удалось скачать изображение: {url}, статус {resp.status}")
     except Exception as e:
         logging.error(f"[Ошибка загрузки] {url} — {e}")
     return False
+
 
 async def get_header_image_url_from_api(session: aiohttp.ClientSession, appid: int) -> str:
     api_url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
@@ -58,6 +66,7 @@ async def get_header_image_url_from_api(session: aiohttp.ClientSession, appid: i
     except Exception as e:
         logging.error(f"[Steam API] Ошибка получения header_image для {appid}: {e}")
     return ""
+
 
 async def ensure_header_image(session: aiohttp.ClientSession, appid: int) -> str:
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,12 +92,108 @@ async def ensure_header_image(session: aiohttp.ClientSession, appid: int) -> str
     return ""  # можно подставить заглушку
 
 
+MONTHS_MAP = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+}
+
+
+def parse_release_date(date_str: str):
+    """
+    Парсим даты вида:
+    - '26 May, 2025'
+    - '6 May, 2025'
+    - 'May, 2025'  (без дня)
+    Возвращаем datetime.date или None (если дня нет).
+    """
+    try:
+        # Пробуем распарсить полный формат с днем
+        dt = datetime.strptime(date_str, "%d %b, %Y")
+        return dt.date()
+    except ValueError:
+        pass
+
+    try:
+        # Пробуем распарсить без дня — возвращаем None (нет точной даты)
+        dt = datetime.strptime(date_str, "%b, %Y")
+        return None
+    except ValueError:
+        pass
+
+    return None  # Если формат совсем другой
+
+
+# Получение релизов за месяц или за конкретный день
+async def get_releases(
+        db: AsyncSession,
+        year: int,
+        month: int,
+        user_id: int,
+        day: Optional[int] = None
+) -> Union[defaultdict, list]:
+    try:
+        month_str = MONTHS_MAP.get(month)
+        if not month_str:
+            raise ValueError(f"Invalid month number: {month}")
+
+        excluded_genres = ['4', '23', '57', '55', '51']
+        wrapped_genres = literal(',') + Release.genres + literal(',')
+
+        excluded_conditions = [
+            wrapped_genres.like(f'%,{genre},%') for genre in excluded_genres
+        ]
+
+        like_pattern_comma = f"%{month_str}, {year}%"
+        like_pattern_no_comma = f"%{month_str} {year}%"
+
+        stmt = (
+            select(Release)
+            .filter(Release.release_date_checked == 1)
+            .filter(Release.type == 'game')
+            .filter(
+                or_(
+                    Release.release_date.like(like_pattern_comma),
+                    Release.release_date.like(like_pattern_no_comma)
+                )
+            )
+            .filter(not_(or_(*excluded_conditions)))
+        )
+
+        result = await db.execute(stmt)
+        releases = result.scalars().all()
+
+        if day:
+            # Фильтруем релизы только за указанный день
+            selected_date = date(year, month, day)
+            daily_releases = []
+            for rel in releases:
+                parsed = parse_release_date(rel.release_date)
+                if parsed and parsed == selected_date:
+                    daily_releases.append(rel)
+            return daily_releases
+
+        # Вернуть по дням для календаря
+        calendar_data = defaultdict(list)
+        for rel in releases:
+            parsed = parse_release_date(rel.release_date)
+            if parsed:
+                calendar_data[parsed].append(rel)
+            else:
+                calendar_data["no_date"].append(rel)
+
+        return calendar_data
+
+    except Exception as e:
+        logging.error(f"Ошибка при выборке релизов: {str(e)}")
+        raise
+
+
 # Получение всех игр из базы данных
 async def get_games(db: AsyncSession, id: int):
     try:
         result = await db.execute(select(Game).filter(Game.user_id == id))
         games = result.scalars().all()
-        #logging.info(f"Получены игры : {games}")
+        # logging.info(f"Получены игры : {games}")
         print(f"Fetched games: {games}")  # Логируем все игры
 
         async with aiohttp.ClientSession() as session:
@@ -96,8 +201,9 @@ async def get_games(db: AsyncSession, id: int):
                 total_achievements = await get_total_achievements_for_game(db, game.appid, id)
                 earned_achievements = await get_earned_achievements_for_game(db, game.appid, id)
                 last_obtained_date = await get_last_obtained_date_for_game(db, game.appid, id)
-                #logging.info(f"Игра {game.name} - Всего достижений: {total_achievements}, получено достижений: {earned_achievements}")
-                print(f"Game {game.name} - Total Achievements: {total_achievements}, Earned Achievements: {earned_achievements}")  # Логируем достижения для каждой игры
+                # logging.info(f"Игра {game.name} - Всего достижений: {total_achievements}, получено достижений: {earned_achievements}")
+                print(
+                    f"Game {game.name} - Total Achievements: {total_achievements}, Earned Achievements: {earned_achievements}")  # Логируем достижения для каждой игры
 
                 game.total_achievements = total_achievements
                 game.earned_achievements = earned_achievements
@@ -121,6 +227,7 @@ async def get_games(db: AsyncSession, id: int):
         print(f"Error while fetching games: {str(e)}")
         raise e
 
+
 # Получение самой свежей ачивки
 async def get_last_obtained_date_for_game(db: AsyncSession, appid: int, id: int):
     result = await db.execute(
@@ -130,11 +237,13 @@ async def get_last_obtained_date_for_game(db: AsyncSession, appid: int, id: int)
     )
     return result.scalar_one_or_none()
 
+
 # Получение названия игры
 async def get_game_name(db: AsyncSession, appid: int, id: int):
-    result = await db.execute(select(Game).filter(Game.appid == appid).filter(Game.user_id == id))
+    result = await db.execute(select(Release).filter(Release.appid == appid))
     name = result.scalars().one()
     return name
+
 
 # Получение всех достижений для игры по appid
 async def get_achievements_for_game(db: AsyncSession, appid: int, id: int):
@@ -142,12 +251,14 @@ async def get_achievements_for_game(db: AsyncSession, appid: int, id: int):
     achievements = result.scalars().all()
     return achievements
 
+
 # Получение общего количества достижений для игры
 async def get_total_achievements_for_game(db: AsyncSession, appid: int, id: int):
     try:
-        result = await db.execute(select(Achievement).filter(Achievement.appid == appid).filter(Achievement.user_id == id))
+        result = await db.execute(
+            select(Achievement).filter(Achievement.appid == appid).filter(Achievement.user_id == id))
         achievements = result.scalars().all()
-        #logging.info(f"Всего достижений для appid {appid}: {len(achievements)}")
+        # logging.info(f"Всего достижений для appid {appid}: {len(achievements)}")
         print(f"Total achievements for appid {appid}: {len(achievements)}")  # Логируем общее количество достижений
         return len(achievements)
     except Exception as e:
@@ -155,8 +266,10 @@ async def get_total_achievements_for_game(db: AsyncSession, appid: int, id: int)
         print(f"Error while fetching total achievements for appid {appid}: {str(e)}")
         raise e
 
+
 # Получение количества полученных достижений для игры
 from sqlalchemy import func
+
 
 async def get_earned_achievements_for_game(db: AsyncSession, appid: int, id: int):
     try:
@@ -166,8 +279,9 @@ async def get_earned_achievements_for_game(db: AsyncSession, appid: int, id: int
             .filter(Achievement.obtained_date != None)  # Фильтрация по полученным достижениям
         )
         earned_achievements = result.scalar_one()  # Получаем количество
-        #logging.info(f"Получено ачивок для игры appid {appid}: {earned_achievements}")
-        print(f"Earned achievements for appid {appid}: {earned_achievements}")  # Логируем количество полученных достижений
+        # logging.info(f"Получено ачивок для игры appid {appid}: {earned_achievements}")
+        print(
+            f"Earned achievements for appid {appid}: {earned_achievements}")  # Логируем количество полученных достижений
         return earned_achievements
     except Exception as e:
         logging.error(f"Ошибка при выборке полученных ачивок для игры appid {appid}: {str(e)}")

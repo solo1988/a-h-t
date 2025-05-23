@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Игры{% endblock %}</title>
+    <link rel="shortcut icon" href="/static/favicon.ico">
+    <link rel="manifest" href="/static/manifest.json?v=4">
+    <meta name="theme-color" content="#000000">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+    {% block included_css %}{% endblock %}
+    {% block main_css %}<link rel="stylesheet" href="/static/main.css?v=2">{% endblock %}
+</head>
+<body {% block body_class %}{% endblock %}>
+<div class="background-overlay">{% block white_bg %}{% endblock %}</div>
+{% block install_button %}{% endblock %}
+{% block welcome %}{% endblock %}
+<div id="app-container">
+    <div class="container mt-5">
+        <div class="container p-0 mt-4">
+            {% block add_game %}{% endblock %}
+        </div>
+        {% block content %}{% endblock %}
+    </div>
+    {% block install_scripts %}{% endblock %}
+
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
+</div>
+{% include "partial/navbar.html" %}
+<div id="search-overlay">
+    <form class="d-flex" id="live-search-form">
+        <input class="form-control me-2 w-100" type="search" placeholder="Введите название или appid..." aria-label="Search"
+               id="search-input" autocomplete="off">
+        <button type="button" class="btn btn-outline-light ms-2" id="close-search">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </form>
+    <div id="search-results" class="list-group mt-2" style="max-height: 300px; overflow-y: auto;"></div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const searchBtn = document.getElementById('toggle-search');
+    const searchOverlay = document.getElementById('search-overlay');
+    const closeBtn = document.getElementById('close-search');
+    const input = document.getElementById('search-input');
+    const results = document.getElementById('search-results');
+
+    let timeout;
+
+    function openSearch() {
+        searchOverlay.classList.add('show');
+        input.focus();
+    }
+
+    function closeSearch() {
+        searchOverlay.classList.remove('show');
+        input.value = '';
+        results.innerHTML = '';
+    }
+
+    searchBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openSearch();
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeSearch();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeSearch();
+    });
+
+    input.addEventListener('input', () => {
+        clearTimeout(timeout);
+        const query = input.value.trim();
+
+        if (query.length < 2) {
+            results.innerHTML = '';
+            return;
+        }
+
+        timeout = setTimeout(() => {
+            fetch(`/api/search?q=${encodeURIComponent(query)}`)
+                .then(res => res.json())
+                .then(data => {
+                    results.innerHTML = '';
+                    if (data.length) {
+                        data.forEach(rel => {
+                            const a = document.createElement('a');
+                            a.href = `/release/${rel.appid}`;
+                            a.className = 'list-group-item list-group-item-action';
+                            a.innerHTML = `
+                                <div class="d-flex align-items-center">
+                                    <img src="/static/images/header/${rel.appid}.jpg" class="me-2" style="height: 40px;">
+                                    <div>
+                                        <div>${rel.name}</div>
+                                        <small class="text-muted">${rel.release_date}</small>
+                                    </div>
+                                </div>`;
+                            results.appendChild(a);
+                        });
+                    } else {
+                        results.innerHTML = '<div class="list-group-item text-muted">Ничего не найдено</div>';
+                    }
+                });
+        }, 300);
+    });
+});
+</script>
+    {% block included_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,23 @@
+<nav class="navbar fixed-bottom bg-dark text-white d-flex justify-content-around pb-1 border-top">
+    <a href="/" class="text-white text-center text-decoration-none small">
+        <i class="bi bi-house-fill small d-block"></i>
+        <small>Главная</small>
+    </a>
+    <a href="/calendar/{{ now.year }}/{{ '%01d' % now.month }}"
+       class="text-white text-center text-decoration-none small">
+        <i class="bi bi-calendar-event small d-block"></i>
+        <small>Календарь</small>
+    </a>
+    <a href="#" id="toggle-search" class="text-white text-center text-decoration-none small">
+        <i class="bi bi-search small d-block"></i>
+        <small>Поиск</small>
+    </a>
+    <a href="javascript:location.reload()" class="text-white text-center text-decoration-none small">
+        <i class="bi bi-arrow-clockwise small d-block"></i>
+        <small>Обновить</small>
+    </a>
+    <a href="javascript:history.back()" class="text-white text-center text-decoration-none small">
+        <i class="bi bi-arrow-return-left small d-block"></i>
+        <small>Назад</small>
+    </a>
+</nav>

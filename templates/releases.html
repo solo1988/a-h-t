@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Релизы за {{ formatted_date }}{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">Релизы за {{ formatted_date }}</h3>
+
+{% if releases %}
+<div class="row">
+    {% for release in releases %}
+    <div class="col-md-3 col-sm-6 mb-4">
+        <div class="card h-100 shadow-sm">
+            <img src="/static/images/header/{{ release.appid }}.jpg"
+                 class="card-img-top" alt="{{ release.name }}">
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title mb-2">{{ release.name }}</h6>
+                <p class="card-text text-muted mt-auto">Дата в базе: {{ release.release_date }}</p>
+            </div>
+            <a href="/release/{{ release.appid }}" class="stretched-link"></a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">На эту дату релизов нет.</p>
+{% endif %}
+{% endblock %}

@@ -1,70 +1,58 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Игры</title>
-    <link rel="shortcut icon" href="/static/favicon.ico">
-    <link rel="manifest" href="/static/manifest.json?v=4">
-    <meta name="theme-color" content="#000000">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="/static/main.css">
-</head>
-<body>
-<div class="background-overlay"></div>
+{% extends "base.html" %}
+
+{% block title %}Игры{% endblock %}
+
+{% block install_button %}
+
+{% block white_bg %}<div class="white-tint"></div>{% endblock %}
+
 <button id="install-btn"
         style="display: none; position: fixed; bottom: 16px; right: 16px; padding: 10px 16px; z-index: 9999;">
     📲 Установить приложение
-</button>
-<h1 class="text-center mt-4">Привет, {{ user.username }}!</h1>
-<div id="app-container">
-    <div class="container mt-5">
-        <div class="container p-0 mt-4">
-            <form id="addGameForm">
-                <div class="form-floating mb-3 input-group">
-                    <input type="number" id="appidInput" class="form-control" required="" placeholder="12345678">
-                    <label for="appidInput">Введите AppID игры:</label>
-                    <button type="submit" class="btn btn-primary">Добавить игру</button>
-                </div>
-            </form>
-        </div>
-        <div class="row">
-            {% for game in games %}
-            {% set earned = game.earned_achievements %}
-            {% set total = game.total_achievements %}
-            {% set percent = (earned / total * 100) if total > 0 else 0 %}
-            {% set border = 'border-5 border-warning' if percent > 99 else 'border-0' %}
-            <div class="col-md-4 my-3">
-                <div class="card d-flex flex-column h-100 {{border}} position-relative">
-                    <div class="position-absolute top-0 start-100 translate-middle">
-                        {% if percent > 99 %}
-                        <i class="bi bi-star-fill fs-1 text-danger"></i>
-                        {% endif %}
-                    </div>
-                    <img class="card-img" src="{{ game.background }}">
-                    <div class="card-img-overlay p-0 d-flex flex-column">
-                        <a href="/achievements/{{ game.appid }}" class="stretched-link"></a>
-                        <p class="card-text py-2 bg-dark bg-opacity-75 text-white text-center mt-auto rounded">
-                            {% if percent > 99 %}
-                            <strong>ПЛАТИНА !!!</strong>
-                            {% else %}
-                            <strong>Достижений: {{ earned }} из {{ total }} ({{ percent|round(0, 'floor') }}%
-                                получено)</strong>
-                            {% endif %}
-                        </p>
-                    </div>
-                </div>
+</button>{% endblock %}
+
+{% block welcome %}<h1 class="text-center mt-5">Привет, {{ user.username }}!</h1>{% endblock %}
+
+{% block add_game %}
+<form id="addGameForm">
+    <div class="form-floating mb-3 input-group">
+        <input type="number" id="appidInput" class="form-control" required="" placeholder="12345678">
+        <label for="appidInput">Введите AppID игры:</label>
+        <button type="submit" class="btn btn-primary">Добавить игру</button>
+    </div>
+</form>{% endblock %}
+
+{% block content %}
+<div class="row">
+    {% for game in games %}
+    {% set earned = game.earned_achievements %}
+    {% set total = game.total_achievements %}
+    {% set percent = (earned / total * 100) if total > 0 else 0 %}
+    {% set border = 'border-5 border-warning' if percent > 99 else 'border-0' %}
+    <div class="col-md-4 my-3">
+        <div class="card d-flex flex-column h-100 {{border}} position-relative">
+            <div class="position-absolute top-0 start-100 translate-middle">
+                {% if percent > 99 %}
+                <i class="bi bi-star-fill fs-1 text-danger"></i>
+                {% endif %}
             </div>
-            {% endfor %}
+            <img class="card-img" src="{{ game.background }}">
+            <div class="card-img-overlay p-0 d-flex flex-column">
+                <a href="/achievements/{{ game.appid }}" class="stretched-link"></a>
+                <p class="card-text py-2 bg-dark bg-opacity-75 text-white text-center mt-auto rounded">
+                    {% if percent > 99 %}
+                    <strong>ПЛАТИНА !!!</strong>
+                    {% else %}
+                    <strong>Достижений: {{ earned }} из {{ total }} ({{ percent|round(0, 'floor') }}%
+                        получено)</strong>
+                    {% endif %}
+                </p>
+            </div>
         </div>
     </div>
-    <script src="/static/install.js"></script>
-    <script src="/static/subscription.js"></script>
+    {% endfor %}
+</div>{% endblock %}
 
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
-</div>
-<!--<script src="/static/installer.js"></script>-->
-</body>
-</html>
+{% block install_scripts %}
+<script src="/static/install.js"></script>
+<script src="/static/subscription.js"></script>{% endblock %}

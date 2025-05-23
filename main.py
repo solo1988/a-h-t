@@ -1,4 +1,5 @@
 import asyncio
+import httpx
 import json
 import websockets
 from datetime import datetime
@@ -7,14 +8,15 @@ from steam_api import fetch_game_data, get_achievement_url
 from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks, Query, Form
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from database import init_db, SessionLocal, SyncSessionLocal
-from crud import get_games, get_achievements_for_game, get_game_name
-from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User
+from crud import get_games, get_achievements_for_game, get_game_name, parse_release_date, get_releases
+from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User, Release
 from sqlalchemy.future import select
+from sqlalchemy import or_, cast, String
 from sqlalchemy.exc import IntegrityError
 import uvicorn
 import hashlib
@@ -33,6 +35,8 @@ from fastapi_login import LoginManager
 from fastapi_login.exceptions import InvalidCredentialsException
 from passlib.context import CryptContext
 from datetime import timedelta
+from collections import defaultdict
+from calendar import monthrange
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -137,6 +141,7 @@ async def subscribe(subscription: PushSubscriptionCreate, user=Depends(manager))
             logging.error(f"Ошибка: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка: {e}")
 
+
 @app.middleware("http")
 async def redirect_unauthed(request: Request, call_next):
     if request.url.path == "/" and not request.cookies.get(manager.cookie_name):
@@ -159,6 +164,101 @@ async def startup():
     # Запуск фонового веб-сокет обработчика
     asyncio.create_task(websocket_listener())
 
+@app.get("/api/steam_appdetails/{appid}")
+async def steam_proxy(appid: int):
+    url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=ru"
+    headers = {
+        "Accept-Language": "ru",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+    return JSONResponse(content=response.json())
+
+@app.get("/release/{appid}", response_class=HTMLResponse)
+async def release_page(request: Request, appid: int):
+    now = datetime.now()
+    return templates.TemplateResponse("release.html", {"request": request, "appid": appid, "now": now})
+
+MONTHS_MAP = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+}
+
+MONTHS_MAP_RUSSIAN = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель", 5: "Май", 6: "Июнь",
+    7: "Июль", 8: "Август", 9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+}
+
+MONTHS_MAP_REV = {v: k for k, v in MONTHS_MAP.items()}
+
+@app.get("/calendar/{year}/{month}", name="game_calendar")
+async def game_calendar(request: Request, year: int = None, month: int = None, user=Depends(manager)):
+    logging.info(f"Отдаем релизы юзеру: {user.username, user.id}")
+    today = datetime.today()
+    year = year or today.year
+    main_year = today.year
+    month = month or today.month
+    month_name = MONTHS_MAP.get(month, "Unknown")
+    month_name_rus = MONTHS_MAP_RUSSIAN.get(month, "Unknown")
+
+    async with SessionLocal() as session:
+        try:
+            calendar_data = await get_releases(session, year, month, user.id)
+            month_name = MONTHS_MAP.get(month, "Unknown")
+            first_day_of_month = datetime(year, month, 1)
+            days_in_month = monthrange(year, month)[1]
+            now = datetime.now()
+            return templates.TemplateResponse("calendar.html", {
+                "request": request,
+                "calendar_data": calendar_data,  # передаем именно calendar_data
+                "user": user,
+                "datetime": datetime,
+                "MONTHS_MAP_REV": MONTHS_MAP_REV,
+                "current_year": year,
+                "current_month": month_name,
+                "month_name": month_name_rus,
+                "main_year": main_year,
+                "russian_months": MONTHS_MAP_RUSSIAN,
+                "current_month_int": month,
+                "first_day_of_month": first_day_of_month,
+                "days_in_month": days_in_month,
+                "now": now
+            })
+            logging.error(f"Массив релизов {calendar_data}")
+        except Exception as e:
+            logging.error(f"Ошибка выборки релизов для календаря: {str(e)}")
+            print(f"An error occurred while fetching games: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to fetch releases data: {str(e)}"
+            )
+
+#Страница релизов по дням
+@app.get("/releases/{year}/{month}/{day}", name="releases_by_day")
+async def releases_by_day(request: Request, year: int, month: int, day: int, user=Depends(manager)):
+    logging.info(f"Отдаем релизы за дату: {day}-{month}-{year} для пользователя {user.username, user.id}")
+
+    try:
+        date_str = f"{day:02}.{month:02}.{year}"
+        async with SessionLocal() as session:
+            calendar_data = await get_releases(session, year, month, user.id)
+            target_date = f"{year:04}-{month:02}-{day:02}"
+
+            # Фильтруем релизы по точно совпадающей дате
+            releases = calendar_data.get(datetime(year, month, day).date(), [])
+            now = datetime.now()
+            return templates.TemplateResponse("releases.html", {
+                "request": request,
+                "user": user,
+                "releases": releases,
+                "formatted_date": f"{day} {MONTHS_MAP_RUSSIAN.get(month, str(month))} {year}",
+                "now": now
+            })
+    except Exception as e:
+        logging.error(f"Ошибка выборки релизов за день: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Ошибка при получении релизов за дату: {str(e)}"
+        )
 
 # Главная страница с выводом списка игр
 @app.get("/", response_class=HTMLResponse)
@@ -172,8 +272,9 @@ async def home(request: Request, user=Depends(manager)):
                 session, user.id
             )  # предполагаем, что get_games возвращает список игр
             logging.info(f"Загружена главная страница для {user.username}")
+            now = datetime.now()
             return templates.TemplateResponse(
-                "index.html", {"request": request, "games": games, "user": user}
+                "index.html", {"request": request, "games": games, "user": user, "now": now}
             )
         except Exception as e:
             logging.error(f"Ошибка выборки игр главной страницы: {str(e)}")
@@ -186,16 +287,12 @@ async def home(request: Request, user=Depends(manager)):
 # Страница с раздачами
 @app.get("/trackers/{appid}", response_class=HTMLResponse)
 async def trackers(request: Request, appid: int, user=Depends(manager)):
-    # Получаем данные о достижениях из базы данных
-    # Проверяем, авторизован ли пользователь
-    # user_id = request.session.get("user_id")
-    # if user_id != ALLOWED_USER_ID:
-    #     return RedirectResponse(url="/")
     async with SessionLocal() as session:
         try:
             game_name = await get_game_name(session, appid, user.id)
             background_url = f"/static/images/background/{appid}.jpg"
             logging.info(f"Формируем страницу раздач игры {game_name.name }")
+            now = datetime.now()
             return templates.TemplateResponse(
                 "trackers.html",
                 {
@@ -203,6 +300,7 @@ async def trackers(request: Request, appid: int, user=Depends(manager)):
                     "appid": appid,
                     "game_name": game_name,
                     "background": background_url,
+                    "now": now
                 },
             )
         except Exception as e:
@@ -224,7 +322,7 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
             achievements = await get_achievements_for_game(session, appid, user.id)
             game_name = await get_game_name(session, appid, user.id)
             background_url = f"/static/images/background/{appid}.jpg"
-
+            now = datetime.now()
             # Подготовка данных для отображения
             achievements_data = [
                 {
@@ -246,6 +344,7 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
                     "achievements": achievements_data,
                     "game_name": game_name,
                     "background": background_url,
+                    "now": now
                 },
             )
         except Exception as e:
@@ -307,6 +406,37 @@ class AchievementData(BaseModel):
     obtained_time: int
     user_id: int
 
+#поиск релизов
+@app.get("/api/search")
+async def search_releases(q: str = Query(..., min_length=2)):
+    async with SessionLocal() as session:
+        # stmt = (
+        #     select(Release)
+        #     .where(Release.name.ilike(f"%{q}%"))
+        #     .where(Release.type == 'game')
+        #     .limit(10)
+        # )
+        stmt = (
+            select(Release)
+            .where(
+                or_(
+                    Release.name.ilike(f"%{q}%"),
+                    cast(Release.appid, String).ilike(f"%{q}%")
+                )
+            )
+            .where(Release.type == 'game')
+            .limit(10)
+        )
+        result = await session.execute(stmt)
+        releases = result.scalars().all()
+        return [
+            {
+                "name": r.name,
+                "appid": r.appid,
+                "release_date": r.release_date
+            }
+            for r in releases
+        ]
 
 # Эндпоинт для получения данных и обновления достижения
 @app.post("/api/update_achievement")

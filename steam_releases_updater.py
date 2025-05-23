@@ -4,6 +4,10 @@ from database import SyncSessionLocal
 import requests
 import time
 import logging
+from sqlalchemy import null
+import asyncio
+import aiohttp
+from crud import ensure_header_image
 
 logging.basicConfig(
     filename="updater.log",  # Имя файла для записи логов
@@ -41,7 +45,6 @@ def update_games_db():
 
         seen_appids.add(appid)
         new_games.append(Release(appid=appid, name=name))
-
     if new_games:
         db.bulk_save_objects(new_games)
         db.commit()
@@ -49,9 +52,11 @@ def update_games_db():
     db.close()
 
 
+
 def update_release_dates():
     db: Session = SyncSessionLocal()
-    games_to_update = db.query(Release).filter_by(release_date_checked=False).all()
+
+    games_to_update = db.query(Release).filter(Release.genres.is_(None)).all()
 
     BATCH_SIZE = 50
     updated = 0
@@ -64,11 +69,22 @@ def update_release_dates():
 
             app_data = data.get(str(game.appid), {})
             if app_data.get("success"):
-                release_info = app_data.get("data", {}).get("release_date", {})
+                details = app_data.get("data", {})
+                release_info = details.get("release_date", {})
+
                 game.release_date = release_info.get("date")
-                logging.info(f"{game.appid} → {game.release_date}")
+                game.type = details.get("type")
+
+                # Извлекаем жанры
+                genres = details.get("genres", [])
+                if genres:
+                    genre_ids = [str(g["id"]) for g in genres if "id" in g]
+                    game.genres = ",".join(genre_ids)
+
+                # Скачиваем header image
+                asyncio.run(download_header_image(game.appid))
         except Exception as e:
-            logging.warning(f"Ошибка при обновлении {game.appid}: {e}")
+            print(f"Ошибка при обновлении {game.appid}: {e}")
 
         game.release_date_checked = True
         db.add(game)
@@ -80,5 +96,10 @@ def update_release_dates():
 
         time.sleep(1)
 
-    db.commit()  # сохранить оставшиеся
+    db.commit()
     db.close()
+
+
+async def download_header_image(appid: int):
+    async with aiohttp.ClientSession() as session:
+        await ensure_header_image(session, appid)

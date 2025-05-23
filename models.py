@@ -12,6 +12,8 @@ class Release(Base):
     name = Column(String, nullable=False)
     release_date = Column(String, nullable=True)
     release_date_checked = Column(Boolean, default=False)
+    type = Column(String, nullable=True)
+    genres = Column(String, nullable=True)  # Новое поле: ID жанров через запятую
 
 class User(Base):
     __tablename__ = 'users'
