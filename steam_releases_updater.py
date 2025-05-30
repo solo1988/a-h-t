@@ -4,16 +4,34 @@ from database import SyncSessionLocal
 import requests
 import time
 import logging
-from sqlalchemy import null
+from sqlalchemy import null, or_, and_
 import asyncio
 import aiohttp
 from crud import ensure_header_image
+import json
+import os
 
 logging.basicConfig(
     filename="updater.log",  # Имя файла для записи логов
     level=logging.INFO,  # Уровень логирования
     format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
+
+# Константы
+MAX_GENRE_RETRIES = 5
+SKIP_FILE = "genre_retry.json"
+
+# Загрузка/сохранение попыток
+
+def load_genre_retries():
+    if os.path.exists(SKIP_FILE):
+        with open(SKIP_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_genre_retries(retries):
+    with open(SKIP_FILE, "w") as f:
+        json.dump(retries, f)
 
 
 def fetch_all_steam_games():
@@ -56,7 +74,20 @@ def update_games_db():
 def update_release_dates():
     db: Session = SyncSessionLocal()
 
-    games_to_update = db.query(Release).filter(Release.genres.is_(None)).all()
+    genre_retries = load_genre_retries()
+    skip_appids = [int(appid) for appid, count in genre_retries.items() if count >= MAX_GENRE_RETRIES]
+
+    games_to_update = db.query(Release).filter(
+        or_(
+            and_(
+                Release.release_date_checked.is_(True),
+                Release.genres.is_(None),
+                Release.type == 'game',
+                ~Release.appid.in_(skip_appids)
+            ),
+            Release.release_date_checked.is_(False)
+        )
+    ).all()
 
     BATCH_SIZE = 50
     updated = 0
@@ -80,9 +111,13 @@ def update_release_dates():
                 if genres:
                     genre_ids = [str(g["id"]) for g in genres if "id" in g]
                     game.genres = ",".join(genre_ids)
+                    genre_retries.pop(str(game.appid), None)  # Удаляем, если успешно
+                else:
+                    genre_retries[str(game.appid)] = genre_retries.get(str(game.appid), 0) + 1
 
                 # Скачиваем header image
                 asyncio.run(download_header_image(game.appid))
+
         except Exception as e:
             print(f"Ошибка при обновлении {game.appid}: {e}")
 
@@ -98,7 +133,7 @@ def update_release_dates():
 
     db.commit()
     db.close()
-
+    save_genre_retries(genre_retries)
 
 async def download_header_image(appid: int):
     async with aiohttp.ClientSession() as session:

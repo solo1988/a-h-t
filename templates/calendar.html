@@ -5,7 +5,7 @@
 {% block white_bg %}
 <div class="white-tint"></div>{% endblock %}
 
-{% block content %}    <h1 class="mb-4">Календарь релизов — {{ month_name }} {{ current_year }}</h1>
+{% block content %}    <h1 class="mb-4" id="calendar-title">Календарь релизов — {{ month_name }} {{ current_year }}</h1>
 <div class="row my-3">
     <div class="col-md-4 mb-3">
         <select id="selectMonth" class="form-select">
@@ -96,7 +96,7 @@
 
 
 {% if calendar_data.get("no_date") %}
-<div class="mt-4">
+<div class="mt-4" id="no-date-releases">
     <h3>Без конкретной даты</h3>
     <div class="row">
         {% for rel in calendar_data["no_date"] %}
@@ -106,7 +106,8 @@
                      class="card-img-top" alt="{{ rel.name }}">
                 <div class="card-body">
                     <h6 class="card-title">{{ rel.name }}</h6>
-                    <p class="card-text text-muted">Дата в базе: {{ rel.release_date }}</p>
+                    <p class="card-text text-muted">Дата в базе: {{ month_name }} {{ current_year }}</p>
+                    <a href="/release/{{ rel.appid }}" class="stretched-link"></a>
                 </div>
             </div>
         </div>
@@ -140,6 +141,33 @@
                 }
             });
         });
+    });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        let totalReleases = 0;
+
+        // 1. Считаем все бейджи с числом релизов на конкретные даты
+        const badges = document.querySelectorAll('.calendar-grid .badge.bg-danger');
+        badges.forEach(badge => {
+            const count = parseInt(badge.textContent.trim(), 10);
+            if (!isNaN(count)) {
+                totalReleases += count;
+            }
+        });
+
+        // 2. Считаем количество карточек в блоке "Без конкретной даты"
+        const noDateSection = document.getElementById('no-date-releases');
+        if (noDateSection) {
+            const noDateCards = noDateSection.querySelectorAll('.card');
+            totalReleases += noDateCards.length;
+        }
+
+        // 3. Вставляем итог в заголовок
+        const title = document.getElementById('calendar-title');
+        if (title && totalReleases > 0) {
+            title.textContent += ` (${totalReleases})`;
+        }
     });
 </script>
 {% endblock %}
