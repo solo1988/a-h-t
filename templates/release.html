@@ -65,7 +65,14 @@
                     <div class="my-2"><strong>Жанры:</strong> ${genres}</div>
                     <div class="my-2"><strong>Дата релиза:</strong> ${game.release_date && game.release_date.date ? game.release_date.date : 'Нет данных'}</div>
                     <div class="my-2"><strong>Appid:</strong> {{ appid }}</div>
-                    <form id="addGameFormRelease" class="mt-3">
+                    <div class="my-2 d-inline"><strong>Добавить в избранное:</strong>
+                        <form class="favorite-form d-inline" data-appid="{{ appid }}">
+                          <button type="submit" class="btn btn-link p-0">
+                            <i class="bi bi-heart{% if appid in favorite_appids %}-fill text-danger{% endif %}"></i>
+                          </button>
+                        </form>
+                    </div>
+                    <form id="addGameFormRelease" class="mt-5">
                         <input type="hidden" id="appidInputRelease" value="{{ appid }}">
                         <button type="submit" class="btn btn-primary">Добавить</button>
                         <a href="https://store.steampowered.com/app/{{ appid }}" class="btn btn-danger" target="_blank">Страница в Steam</a>
@@ -125,6 +132,66 @@
             });
         }
 
+        // Навесить обработчик на избранное
+        function updateFavoriteLabel(form) {
+            const icon = form.querySelector('i');
+            const containerDiv = form.parentElement;
+            const label = containerDiv.querySelector('strong');
+            if (!label) return;
+
+            if (icon.classList.contains('bi-heart-fill')) {
+                label.textContent = "Убрать из избранного:";
+            } else {
+                label.textContent = "Добавить в избранное:";
+            }
+        }
+
+        // При загрузке страницы сразу обновляем все надписи
+        container.querySelectorAll('.favorite-form').forEach(form => {
+            updateFavoriteLabel(form);
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const appid = form.dataset.appid;
+                const icon = form.querySelector('i');
+                const containerDiv = form.parentElement;
+                const label = containerDiv.querySelector('strong');
+                const isFavorite = icon.classList.contains('bi-heart-fill');
+
+                // Мгновенно меняем иконку и текст
+                if (isFavorite) {
+                    icon.classList.remove('bi-heart-fill', 'text-danger');
+                    icon.classList.add('bi-heart');
+                    if (label) label.textContent = "Добавить в избранное:";
+                } else {
+                    icon.classList.remove('bi-heart');
+                    icon.classList.add('bi-heart-fill', 'text-danger');
+                    if (label) label.textContent = "Убрать из избранного:";
+                }
+
+                const method = isFavorite ? 'DELETE' : 'POST';
+
+                const res = await fetch(`/favorites/${appid}`, { method });
+
+                if (!res.ok) {
+                    // Если ошибка, возвращаем всё обратно
+                    if (isFavorite) {
+                        icon.classList.remove('bi-heart');
+                        icon.classList.add('bi-heart-fill', 'text-danger');
+                        if (label) label.textContent = "Убрать из избранного:";
+                    } else {
+                        icon.classList.remove('bi-heart-fill', 'text-danger');
+                        icon.classList.add('bi-heart');
+                        if (label) label.textContent = "Добавить в избранное:";
+                    }
+                    alert("Ошибка при обновлении избранного");
+                }
+            });
+        });
+
+
+
+
         container.querySelectorAll('.col-md-8 img').forEach(img => {
             img.classList.add('img-fluid');
             img.classList.add('d-block');
@@ -135,6 +202,5 @@
 
     fetchGameDetails(appid);
 </script>
-
 <script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
 {% endblock %}

@@ -101,26 +101,33 @@ MONTHS_MAP = {
 def parse_release_date(date_str: str):
     """
     Парсим даты вида:
-    - '26 May, 2025'
-    - '6 May, 2025'
+    - '26 May, 2025' (день, месяц, год)
+    - 'Jun 11, 2025' (месяц, день, год)
     - 'May, 2025'  (без дня)
     Возвращаем datetime.date или None (если дня нет).
     """
     try:
-        # Пробуем распарсить полный формат с днем
+        # Формат "день месяц, год" (например, '26 May, 2025')
         dt = datetime.strptime(date_str, "%d %b, %Y")
         return dt.date()
     except ValueError:
         pass
 
     try:
-        # Пробуем распарсить без дня — возвращаем None (нет точной даты)
+        # Формат "месяц день, год" (например, 'Jun 11, 2025')
+        dt = datetime.strptime(date_str, "%b %d, %Y")
+        return dt.date()
+    except ValueError:
+        pass
+
+    try:
+        # Формат без дня (например, 'May, 2025')
         dt = datetime.strptime(date_str, "%b, %Y")
         return None
     except ValueError:
         pass
 
-    return None  # Если формат совсем другой
+    return None  # Формат не распознан
 
 
 # Получение релизов за месяц или за конкретный день
@@ -143,6 +150,17 @@ async def get_releases(
             wrapped_genres.like(f'%,{genre},%') for genre in excluded_genres
         ]
 
+        EN_MONTHS_ABBR = {
+            1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+            7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+        }
+
+        month_str_eng = EN_MONTHS_ABBR.get(month)
+        if not month_str_eng:
+            raise ValueError(f"Invalid month number: {month}")
+
+        like_pattern_eng = f"{month_str_eng} %, {year}"  # например "Jun %, 2025"
+
         like_pattern_comma = f"%{month_str}, {year}%"
         like_pattern_no_comma = f"%{month_str} {year}%"
 
@@ -153,7 +171,8 @@ async def get_releases(
             .filter(
                 or_(
                     Release.release_date.like(like_pattern_comma),
-                    Release.release_date.like(like_pattern_no_comma)
+                    Release.release_date.like(like_pattern_no_comma),
+                    Release.release_date.like(f"%{like_pattern_eng}%")
                 )
             )
             .filter(not_(or_(*excluded_conditions)))

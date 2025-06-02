@@ -5,6 +5,14 @@ from database import Base
 import datetime
 from pydantic import BaseModel
 
+class Favorite(Base):
+    __tablename__ = "favorites"
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    appid = Column(Integer, ForeignKey("releases.appid"), primary_key=True)
+
+    user = relationship("User", back_populates="favorites")
+    release = relationship("Release", back_populates="favorites")
+
 class Release(Base):
     __tablename__ = "releases"
 
@@ -14,6 +22,7 @@ class Release(Base):
     release_date_checked = Column(Boolean, default=False)
     type = Column(String, nullable=True)
     genres = Column(String, nullable=True)  # Новое поле: ID жанров через запятую
+    favorites = relationship("Favorite", back_populates="release", cascade="all, delete")
 
 class User(Base):
     __tablename__ = 'users'
@@ -22,6 +31,7 @@ class User(Base):
     hashed_password = Column(String)
     games = relationship("Game", back_populates="user")  # 👈 связь с играми
     achievements = relationship("Achievement", back_populates="user")  # 👈 связь с ачивками
+    favorites = relationship("Favorite", back_populates="user", cascade="all, delete")
 
 class Game(Base):
     __tablename__ = "games"

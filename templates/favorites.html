@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Избранные игры — {{ user.username }}{% endblock %}
+
+{% block white_bg %}
+<div class="white-tint"></div>
+{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Избранные игры пользователя {{ user.username }}</h1>
+
+{% if releases %}
+<div class="row" id="releases-div">
+    {% for rel in releases %}
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card h-100">
+            <img src="/static/images/header/{{ rel.appid }}.jpg"
+                 class="card-img-top" alt="{{ rel.name }}">
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title">{{ rel.name }}</h6>
+                <p class="card-text text-muted mb-2">
+                    {% if rel.release_date %}
+                    {% if rel.release_date.lower() == 'coming soon' %}
+                    Дата релиза: Coming Soon
+                    {% else %}
+                    Дата релиза: {{ rel.release_date }}
+                    {% endif %}
+                    {% else %}
+                    Дата релиза не указана
+                    {% endif %}
+                </p>
+                <a href="/release/{{ rel.appid }}" class="mt-auto stretched-link"></a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p>У вас пока нет избранных игр.</p>
+{% endif %}
+
+{% endblock %}
+
+{% block included_js %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+    $(function () {
+        const monthMap = {
+            "jan": 0, "feb": 1, "mar": 2, "apr": 3,
+            "may": 4, "jun": 5, "jul": 6, "aug": 7,
+            "sep": 8, "oct": 9, "nov": 10, "dec": 11,
+            "янв": 0, "фев": 1, "мар": 2, "апр": 3,
+            "май": 4, "мая": 4, "июн": 5, "июл": 6,
+            "авг": 7, "сен": 8, "сент": 8, "окт": 9,
+            "ноя": 10, "дек": 11
+        };
+
+        function parseReleaseDate(text) {
+            if (!text) return new Date(0);
+            const lower = text.toLowerCase();
+            if (lower.includes("coming soon")) return new Date(0);
+
+            // Подправленная регулярка: учитываем запятую после месяца
+            const match = lower.match(/(\d{1,2})?\s*([а-яa-z]{3,4}),?\s*(\d{4})/i);
+            if (!match) return new Date(0);
+
+            const day = match[1] ? parseInt(match[1], 10) : null;
+            const monthStr = match[2].slice(0, 3);
+            const year = parseInt(match[3], 10);
+            const month = monthMap[monthStr];
+
+            if (isNaN(month) || isNaN(year)) return new Date(0);
+
+            const finalDay = day || new Date(year, month + 1, 0).getDate();
+            return new Date(year, month, finalDay);
+        }
+
+        const cards = $("#releases-div > div.col-md-3").get();
+
+        cards.sort((a, b) => {
+            // Извлекаем текст даты релиза из карточки, убирая "Дата релиза:"
+            const textA = $(a).find(".card-text").text().replace('Дата релиза:', '').trim();
+            const textB = $(b).find(".card-text").text().replace('Дата релиза:', '').trim();
+
+            const dateA = parseReleaseDate(textA);
+            const dateB = parseReleaseDate(textB);
+
+            return dateA - dateB; // сортируем по возрастанию даты
+        });
+
+        const container = $("#releases-div");
+        container.empty();
+        cards.forEach(card => container.append(card));
+    });
+
+</script>
+
+{% endblock %}

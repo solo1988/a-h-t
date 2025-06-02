@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from database import init_db, SessionLocal, SyncSessionLocal
 from crud import get_games, get_achievements_for_game, get_game_name, parse_release_date, get_releases
-from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User, Release
+from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User, Release, Favorite
 from sqlalchemy.future import select
 from sqlalchemy import or_, cast, String
 from sqlalchemy.exc import IntegrityError
@@ -176,9 +176,22 @@ async def steam_proxy(appid: int):
     return JSONResponse(content=response.json())
 
 @app.get("/release/{appid}", response_class=HTMLResponse)
-async def release_page(request: Request, appid: int):
+async def release_page(request: Request, appid: int, user=Depends(manager)):
     now = datetime.now()
-    return templates.TemplateResponse("release.html", {"request": request, "appid": appid, "now": now})
+
+    async with SessionLocal() as session:
+        try:
+            favorite_appids = await get_user_favorites(user.id, session)
+            return templates.TemplateResponse("release.html", {
+                "request": request,
+                "appid": appid,
+                "now": now,
+                "favorite_appids": favorite_appids,
+                "user": user
+            })
+        except Exception as e:
+            logging.error(f"Ошибка загрузки страницы релиза для appid={appid}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Ошибка при загрузке страницы релиза")
 
 MONTHS_MAP = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
@@ -282,6 +295,70 @@ async def home(request: Request, user=Depends(manager)):
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch games data: {str(e)}"
             )
+
+@app.post("/favorites/{appid}")
+async def add_favorite(appid: int, user=Depends(manager)):
+    async with SessionLocal() as session:
+        try:
+            # Проверка, есть ли уже такая запись
+            stmt = select(Favorite).where(Favorite.user_id == user.id, Favorite.appid == appid)
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                raise HTTPException(status_code=400, detail="Игра уже в избранном")
+
+            session.add(Favorite(user_id=user.id, appid=appid))
+            await session.commit()
+            return {"message": "Добавлено в избранное"}
+        except Exception as e:
+            logging.error(f"Ошибка при добавлении в избранное: {e}")
+            raise HTTPException(status_code=500, detail="Ошибка сервера")
+
+
+@app.delete("/favorites/{appid}")
+async def remove_favorite(appid: int, user=Depends(manager)):
+    async with SessionLocal() as session:
+        try:
+            stmt = select(Favorite).where(Favorite.user_id == user.id, Favorite.appid == appid)
+            result = await session.execute(stmt)
+            favorite = result.scalar_one_or_none()
+
+            if not favorite:
+                raise HTTPException(status_code=404, detail="Игра не найдена в избранном")
+
+            await session.delete(favorite)
+            await session.commit()
+            return {"message": "Удалено из избранного"}
+        except Exception as e:
+            logging.error(f"Ошибка при удалении из избранного: {e}")
+            raise HTTPException(status_code=500, detail="Ошибка сервера")
+
+
+@app.get("/favorites", response_class=HTMLResponse)
+async def show_favorites(request: Request, user=Depends(manager)):
+    async with SessionLocal() as session:
+        try:
+            stmt = (
+                select(Release)
+                .join(Favorite, Favorite.appid == Release.appid)
+                .where(Favorite.user_id == user.id)
+                # .order_by(Release.release_date)  # закомментировано для теста
+            )
+            #print(str(stmt.compile(compile_kwargs={"literal_binds": True})))  # Для отладки SQL
+            result = await session.execute(stmt)
+            releases = result.scalars().all()
+            now = datetime.now()
+
+            return templates.TemplateResponse(
+                "favorites.html",
+                {"request": request, "releases": releases, "user": user, "now": now}
+            )
+        except Exception as e:
+            import traceback
+            logging.error(f"Ошибка при загрузке избранного: {e}")
+            logging.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail="Не удалось загрузить избранное")
 
 
 # Страница с раздачами
@@ -451,6 +528,12 @@ async def update_achievement_endpoint(data: AchievementData):
         )
         logging.info(f"Отправили ачивку с удаленного вебсокета, {data.achievement_name}")
         return {"message": "Achievement updated successfully"}
+
+
+async def get_user_favorites(user_id: int, session: AsyncSession) -> list[int]:
+    query = select(Favorite.appid).where(Favorite.user_id == user_id)
+    result = await session.execute(query)
+    return [row[0] for row in result.fetchall()]
 
 
 # Функция обновления достижений
