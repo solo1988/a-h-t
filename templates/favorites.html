@@ -55,44 +55,79 @@
             "ноя": 10, "дек": 11
         };
 
+        // Месяцы в родительном падеже для вывода
+        const russianMonths = [
+            "января", "февраля", "марта", "апреля",
+            "мая", "июня", "июля", "августа",
+            "сентября", "октября", "ноября", "декабря"
+        ];
+
         function parseReleaseDate(text) {
             if (!text) return new Date(0);
             const lower = text.toLowerCase();
             if (lower.includes("coming soon")) return new Date(0);
 
-            // Подправленная регулярка: учитываем запятую после месяца
-            const match = lower.match(/(\d{1,2})?\s*([а-яa-z]{3,4}),?\s*(\d{4})/i);
-            if (!match) return new Date(0);
+            const regex1 = /(\d{1,2})\s*([а-яa-z]{3,4}),?\s*(\d{4})/i;       // День Месяц Год
+            const regex2 = /([а-яa-z]{3,4})\s*(\d{1,2}),?\s*(\d{4})/i;       // Месяц День, Год
 
-            const day = match[1] ? parseInt(match[1], 10) : null;
-            const monthStr = match[2].slice(0, 3);
-            const year = parseInt(match[3], 10);
+            let day, monthStr, year;
+
+            let match = lower.match(regex1);
+            if (match) {
+                day = parseInt(match[1], 10);
+                monthStr = match[2].slice(0, 3);
+                year = parseInt(match[3], 10);
+            } else {
+                match = lower.match(regex2);
+                if (match) {
+                    monthStr = match[1].slice(0, 3);
+                    day = parseInt(match[2], 10);
+                    year = parseInt(match[3], 10);
+                } else {
+                    return new Date(0);
+                }
+            }
+
             const month = monthMap[monthStr];
+            if (isNaN(month) || isNaN(year) || isNaN(day)) return new Date(0);
 
-            if (isNaN(month) || isNaN(year)) return new Date(0);
+            return new Date(year, month, day);
+        }
 
-            const finalDay = day || new Date(year, month + 1, 0).getDate();
-            return new Date(year, month, finalDay);
+        function formatDateRussian(date) {
+            if (!(date instanceof Date) || isNaN(date)) return "";
+            const day = date.getDate();
+            const month = russianMonths[date.getMonth()] || "";
+            const year = date.getFullYear();
+            return `${day} ${month} ${year}`;
         }
 
         const cards = $("#releases-div > div.col-md-3").get();
 
         cards.sort((a, b) => {
-            // Извлекаем текст даты релиза из карточки, убирая "Дата релиза:"
             const textA = $(a).find(".card-text").text().replace('Дата релиза:', '').trim();
             const textB = $(b).find(".card-text").text().replace('Дата релиза:', '').trim();
 
             const dateA = parseReleaseDate(textA);
             const dateB = parseReleaseDate(textB);
 
-            return dateA - dateB; // сортируем по возрастанию даты
+            return dateA - dateB;
         });
 
         const container = $("#releases-div");
         container.empty();
-        cards.forEach(card => container.append(card));
-    });
 
+        // Вставляем отсортированные карточки и обновляем текст даты
+        cards.forEach(card => {
+            const $card = $(card);
+            const oldText = $card.find(".card-text").text().replace('Дата релиза:', '').trim();
+            const parsedDate = parseReleaseDate(oldText);
+            const newDateText = parsedDate.getTime() > 0 ? formatDateRussian(parsedDate) : "Дата неизвестна";
+
+            $card.find(".card-text").text("Дата релиза: " + newDateText);
+            container.append(card);
+        });
+    });
 </script>
 
 {% endblock %}
