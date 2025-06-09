@@ -37,6 +37,15 @@ from passlib.context import CryptContext
 from datetime import timedelta
 from collections import defaultdict
 from calendar import monthrange
+from tasks.check_favorites import start_scheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+# Загрузка переменных из .env
+load_dotenv()
+
+app = FastAPI()
+
+scheduler = None  # глобальная переменная для хранения объекта планировщика
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -46,10 +55,6 @@ if __name__ == "__main__":
         reload=True,  # включить перезагрузку при изменении кода
     )
 
-# Загрузка переменных из .env
-load_dotenv()
-
-app = FastAPI()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 # 🔑 Добавляем поддержку сессий (ключ должен быть секретным!)
@@ -159,13 +164,22 @@ templates = Jinja2Templates(directory="templates")
 # Статические файлы (для изображений и стилей)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
 @app.on_event("startup")
 async def startup():
-    # Инициализация базы данных при старте приложения
+    global scheduler
     await init_db()
-    # Запуск фонового веб-сокет обработчика
     asyncio.create_task(websocket_listener())
+    logging.info("Запуск планировщика...")
+    scheduler = start_scheduler()
+    logging.info("Планировщик запущен")
+
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    global scheduler
+    if scheduler:
+        scheduler.shutdown()
 
 @app.get("/api/steam_appdetails/{appid}")
 async def steam_proxy(appid: int):
