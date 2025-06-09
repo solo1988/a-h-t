@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Последние обновления{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">Последние обновления</h3>
+
+{% if releases %}
+<div class="row">
+    {% for release in releases %}
+    <div class="col-md-3 col-sm-6 mb-4">
+        <div class="card h-100 shadow-sm">
+            <img src="/static/images/header/{{ release.appid }}.jpg"
+                 class="card-img-top" alt="{{ release.name }}">
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title mb-2">{{ release.name }}</h6>
+                <p class="card-text text-muted mt-auto">Дата релиза: {{ release.release_date }}</p>
+                <p class="card-text text-muted mt-auto">Обновление в базе: {{ release.updated_at.strftime('%d.%m.%Y %H:%M:%S') }}</p>
+            </div>
+            <a href="/release/{{ release.appid }}" class="stretched-link"></a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">Нет данных</p>
+{% endif %}
+{% endblock %}

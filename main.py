@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from database import init_db, SessionLocal, SyncSessionLocal
 from crud import get_games, get_achievements_for_game, get_game_name, parse_release_date, get_releases
-from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User, Release, Favorite
+from models import Achievement, Game, PushSubscription, PushSubscriptionCreate, User, Release, Favorite, Wanted
 from sqlalchemy.future import select
 from sqlalchemy import or_, cast, String
 from sqlalchemy.exc import IntegrityError
@@ -76,6 +76,9 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
 
+# Отключаем лишние логи от httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 @manager.user_loader()
 async def load_user(username: str):
@@ -134,11 +137,11 @@ async def subscribe(subscription: PushSubscriptionCreate, user=Depends(manager))
         db.add(new_sub)
         try:
             await db.commit()
-            logging.info(f"Подписка сохранена для user_id={user.id}")
+            #logging.info(f"Подписка сохранена для user_id={user.id}")
             return {"message": "Подписка сохранена"}
         except Exception as e:
             await db.rollback()
-            logging.error(f"Ошибка: {e}")
+            #logging.error(f"Ошибка: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка: {e}")
 
 
@@ -169,7 +172,9 @@ async def steam_proxy(appid: int):
     url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=ru"
     headers = {
         "Accept-Language": "ru",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
     }
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
@@ -190,7 +195,7 @@ async def release_page(request: Request, appid: int, user=Depends(manager)):
                 "user": user
             })
         except Exception as e:
-            logging.error(f"Ошибка загрузки страницы релиза для appid={appid}: {str(e)}")
+            #logging.error(f"Ошибка загрузки страницы релиза для appid={appid}: {str(e)}")
             raise HTTPException(status_code=500, detail="Ошибка при загрузке страницы релиза")
 
 MONTHS_MAP = {
@@ -238,9 +243,8 @@ async def game_calendar(request: Request, year: int = None, month: int = None, u
                 "days_in_month": days_in_month,
                 "now": now
             })
-            logging.error(f"Массив релизов {calendar_data}")
         except Exception as e:
-            logging.error(f"Ошибка выборки релизов для календаря: {str(e)}")
+            #logging.error(f"Ошибка выборки релизов для календаря: {str(e)}")
             print(f"An error occurred while fetching games: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch releases data: {str(e)}"
@@ -249,7 +253,7 @@ async def game_calendar(request: Request, year: int = None, month: int = None, u
 #Страница релизов по дням
 @app.get("/releases/{year}/{month}/{day}", name="releases_by_day")
 async def releases_by_day(request: Request, year: int, month: int, day: int, user=Depends(manager)):
-    logging.info(f"Отдаем релизы за дату: {day}-{month}-{year} для пользователя {user.username, user.id}")
+    #logging.info(f"Отдаем релизы за дату: {day}-{month}-{year} для пользователя {user.username, user.id}")
 
     try:
         date_str = f"{day:02}.{month:02}.{year}"
@@ -268,29 +272,95 @@ async def releases_by_day(request: Request, year: int, month: int, day: int, use
                 "now": now
             })
     except Exception as e:
-        logging.error(f"Ошибка выборки релизов за день: {str(e)}")
+        #logging.error(f"Ошибка выборки релизов за день: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Ошибка при получении релизов за дату: {str(e)}"
         )
 
+
+@app.get("/wanted", response_class=HTMLResponse)
+async def wanted_games(request: Request, user=Depends(manager)):
+    async with SessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Wanted).where(Wanted.appid.is_not(None)).order_by(Wanted.added.desc())
+            )
+            wanted_list = result.scalars().all()
+
+            return templates.TemplateResponse(
+                "wanted.html",
+                {
+                    "request": request,
+                    "user": user,
+                    "wanted": wanted_list,
+                    "now": datetime.now()
+                }
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка загрузки: {str(e)}")
+
+#Последние обновления
+EXCLUDED_GENRES = {"4", "23", "57", "55", "51"}
+
+@app.get("/last_releases", response_class=HTMLResponse)
+async def last_releases(request: Request, user=Depends(manager)):
+    async with SessionLocal() as session:
+        try:
+            genre_filters = " OR ".join(
+                [f"',' || genres || ',' LIKE '%,{g},%'" for g in EXCLUDED_GENRES]
+            )
+            sql = text(f"""
+                SELECT *
+                FROM releases
+                WHERE DATE(updated_at) >= DATE('now', '-2 days')
+                  AND type = 'game'
+                  AND NOT ({genre_filters})
+                ORDER BY updated_at DESC
+            """)
+            result = await session.execute(sql)
+            games_raw = result.mappings().all()
+
+            # Преобразуем updated_at из строки в datetime
+            games = []
+            for game in games_raw:
+                game = dict(game)
+                game['updated_at'] = datetime.fromisoformat(game['updated_at']) + timedelta(hours=3)  # смещение на МСК
+                games.append(game)
+
+            return templates.TemplateResponse(
+                "last_releases.html",
+                {
+                    "request": request,
+                    "user": user,
+                    "releases": games,
+                    "now": datetime.now()
+                }
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка загрузки: {str(e)}")
+
+
 # Главная страница с выводом списка игр
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user=Depends(manager)):
-    logging.info(f"авторизован юзер: {user.username, user.id}")
     # Открываем сессию с базой данных
     async with SessionLocal() as session:
         try:
+            session_flag = request.session.get("logged_once", False)
+            if not session_flag:
+                logging.info(f"авторизован юзер: {user.username, user.id}")
+                request.session["logged_once"] = True
             # Получаем список игр из базы данных
             games = await get_games(
                 session, user.id
             )  # предполагаем, что get_games возвращает список игр
-            logging.info(f"Загружена главная страница для {user.username}")
+            #logging.info(f"Загружена главная страница для {user.username}")
             now = datetime.now()
             return templates.TemplateResponse(
                 "index.html", {"request": request, "games": games, "user": user, "now": now}
             )
         except Exception as e:
-            logging.error(f"Ошибка выборки игр главной страницы: {str(e)}")
+            #logging.error(f"Ошибка выборки игр главной страницы: {str(e)}")
             print(f"An error occurred while fetching games: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch games data: {str(e)}"
@@ -312,7 +382,7 @@ async def add_favorite(appid: int, user=Depends(manager)):
             await session.commit()
             return {"message": "Добавлено в избранное"}
         except Exception as e:
-            logging.error(f"Ошибка при добавлении в избранное: {e}")
+            #logging.error(f"Ошибка при добавлении в избранное: {e}")
             raise HTTPException(status_code=500, detail="Ошибка сервера")
 
 
@@ -331,7 +401,7 @@ async def remove_favorite(appid: int, user=Depends(manager)):
             await session.commit()
             return {"message": "Удалено из избранного"}
         except Exception as e:
-            logging.error(f"Ошибка при удалении из избранного: {e}")
+            #logging.error(f"Ошибка при удалении из избранного: {e}")
             raise HTTPException(status_code=500, detail="Ошибка сервера")
 
 
@@ -356,8 +426,7 @@ async def show_favorites(request: Request, user=Depends(manager)):
             )
         except Exception as e:
             import traceback
-            logging.error(f"Ошибка при загрузке избранного: {e}")
-            logging.error(traceback.format_exc())
+            #logging.error(f"Ошибка при загрузке избранного: {e}")
             raise HTTPException(status_code=500, detail="Не удалось загрузить избранное")
 
 
@@ -381,7 +450,7 @@ async def trackers(request: Request, appid: int, user=Depends(manager)):
                 },
             )
         except Exception as e:
-            logging.error(f"Ошибка формирования страницы раздач: {str(e)}")
+            #logging.error(f"Ошибка формирования страницы раздач: {str(e)}")
             print(f"An error occurred while fetching games: {str(e)}")
             return {"error": "Failed to fetch games data"}
 
@@ -425,7 +494,7 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
                 },
             )
         except Exception as e:
-            logging.error(f"Ошибка выборки ачивок: {str(e)}")
+            #logging.error(f"Ошибка выборки ачивок: {str(e)}")
             print(f"An error occurred while fetching games: {str(e)}")
             return {"error": "Failed to fetch games data"}
 
@@ -463,7 +532,7 @@ def send_push_notification(subscription, title, body, icon, url):
         )
         logging.info(f"Push отправлен.Содержимое {payload} Статус: {response.status_code}")
     except WebPushException as ex:
-        logging.error(f"Ошибка при отправке push: {repr(ex)} | Endpoint: {subscription.endpoint}")
+        #logging.error(f"Ошибка при отправке push: {repr(ex)} | Endpoint: {subscription.endpoint}")
 
         if "404" in str(ex):
             try:
@@ -474,7 +543,8 @@ def send_push_notification(subscription, title, body, icon, url):
                         db.commit()
                         logging.info(f"Удалена подписка с endpoint: {subscription.endpoint}")
             except Exception as e:
-                logging.error(f"Ошибка при удалении подписки: {e}")
+                #logging.error(f"Ошибка при удалении подписки: {e}")
+                print(f"Ошибка при удалении подписки: {e}")
 
 
 class AchievementData(BaseModel):
@@ -595,7 +665,8 @@ async def update_achievement(
         for tg_user_id, telegram_id in user_to_telegram.items():
             if user_id == tg_user_id:
                 send_telegram_message_with_image(telegram_id, message, BOT_TOKEN, icon)
-                logging.info(f"Отправили уведомление в телеграм {title}")
+                #logging.info(f"Отправили уведомление в телеграм {title}")
+                print(f"Отправили уведомление в телеграм {title}")
 
 
 async def websocket_listener():
@@ -637,7 +708,7 @@ async def add_game(request: Request, user=Depends(manager)):
         try:
             appid = int(data["appid"])  # Преобразуем appid в int
         except (KeyError, ValueError):
-            logging.error("Некорректный формат appid")
+            #logging.error("Некорректный формат appid")
             raise HTTPException(
                 status_code=400, detail="Некорректный формат appid"
             )
@@ -650,12 +721,12 @@ async def add_game(request: Request, user=Depends(manager)):
             select(Game).filter(Game.appid == appid).filter(Game.user_id == user.id)
         )
         if existing_game.scalar_one_or_none():
-            logging.error("Игра уже добавлена")
+            #logging.error("Игра уже добавлена")
             raise HTTPException(status_code=400, detail="Игра уже добавлена")
 
         game_data = await fetch_game_data(appid)
         if not game_data or "game" not in game_data:
-            logging.error("Игра не найдена в Steam")
+            #logging.error("Игра не найдена в Steam")
             raise HTTPException(
                 status_code=404, detail="Игра не найдена в Steam"
             )
@@ -698,7 +769,7 @@ async def add_game(request: Request, user=Depends(manager)):
             return {"message": "Игра и достижения добавлены"}
         except IntegrityError:
             await db.rollback()
-            logging.error("Ошибка при добавлении игры")
+            #logging.error("Ошибка при добавлении игры")
             raise HTTPException(
                 status_code=500, detail="Ошибка при добавлении игры"
             )
@@ -722,7 +793,7 @@ async def update_paths(request: Request, user=Depends(manager)):
 
         # Проверка на корректность данных
         if not all([appid, old_substring, new_substring]):
-            logging.error("Все поля должны быть заполнены")
+            #logging.error("Все поля должны быть заполнены")
             raise HTTPException(
                 status_code=400, detail="Все поля должны быть заполнены"
             )
@@ -730,7 +801,7 @@ async def update_paths(request: Request, user=Depends(manager)):
         try:
             appid = int(appid)  # Преобразуем appid в int
         except ValueError:
-            logging.error("Некорректный формат appid")
+            #logging.error("Некорректный формат appid")
             raise HTTPException(
                 status_code=400, detail="Некорректный формат appid"
             )
@@ -763,7 +834,7 @@ async def update_paths(request: Request, user=Depends(manager)):
             return {"success": True, "message": "Пути обновлены успешно"}
 
         except Exception as e:
-            logging.error("Ошибка при обновлении путей: %s", str(e))
+            #logging.error("Ошибка при обновлении путей: %s", str(e))
             await db.rollback()  # Откатить транзакцию в случае ошибки
             raise HTTPException(
                 status_code=500,
@@ -823,7 +894,6 @@ async def send_test_notification():
         # Отправляем сообщение и изображение в Telegram
         for user_id, telegram_id in user_to_telegram.items():
             send_telegram_message_with_image(telegram_id, message, BOT_TOKEN, icon)
-            logging.error(f"Отправили уведомление в телеграм {title} юзеру {telegram_id}")
 
     return {"message": "Тестовое уведомление отправлено"}
 
@@ -842,6 +912,6 @@ def send_telegram_message_with_image(chat_id: int, message: str, bot_token: str,
 
     # Отправляем запрос
     response = requests.post(url, data=payload)
-    logging.info(f"Данные в телегу {payload}")
-    logging.info(f"Запрос в телегу {response}")
+    #logging.info(f"Данные в телегу {payload}")
+    #logging.info(f"Запрос в телегу {response}")
     return response

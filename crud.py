@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models import Game, Achievement, Release
 import logging
-from datetime import datetime
+# from datetime import datetime
+from datetime import datetime, date
 import os
 import aiohttp
 from pathlib import Path
@@ -10,6 +11,7 @@ from dateutil import parser
 from collections import defaultdict
 from sqlalchemy import not_, or_, func, literal
 from typing import Optional, Union
+import re
 
 STATIC_DIR = Path(__file__).parent / "static" / "images" / "header"
 BACKGROUND_DIR = Path(__file__).parent / "static" / "images" / "background"
@@ -27,11 +29,11 @@ async def ensure_background_image(session: aiohttp.ClientSession, appid: int) ->
         return f"/static/images/background/{appid}.jpg"
 
     background_url = f"https://cdn.steamstatic.com/steam/apps/{appid}/library_hero.jpg"
-    logging.info(f"[Background] Пробуем скачать background для {appid} из: {background_url}")
+    #logging.info(f"[Background] Пробуем скачать background для {appid} из: {background_url}")
     if await download_image(session, background_url, local_path):
         return f"/static/images/background/{appid}.jpg"
 
-    logging.warning(f"[Background] Не удалось получить background для {appid}")
+    #logging.warning(f"[Background] Не удалось получить background для {appid}")
     return ""  # или можно подставить заглушку, если хочешь
 
 
@@ -48,9 +50,11 @@ async def download_image(session: aiohttp.ClientSession, url: str, path: Path) -
                 #logging.info(f"[Загрузка] Скачано изображение: {url}")
                 return True
             else:
-                logging.error(f"[Загрузка] Не удалось скачать изображение: {url}, статус {resp.status}")
+                #logging.error(f"[Загрузка] Не удалось скачать изображение: {url}, статус {resp.status}")
+                print(f"[Загрузка] Не удалось скачать изображение: {url}, статус {resp.status}")
     except Exception as e:
-        logging.error(f"[Ошибка загрузки] {url} — {e}")
+        #logging.error(f"[Ошибка загрузки] {url} — {e}")
+        print(f"[Ошибка загрузки] {url} — {e}")
     return False
 
 
@@ -80,15 +84,16 @@ async def ensure_header_image(session: aiohttp.ClientSession, appid: int) -> str
         return f"/static/images/header/{appid}.jpg"
 
     # 2. Пробуем Steam API
-    logging.info(f"[API] Пробуем получить header_image для {appid}")
+    #logging.info(f"[API] Пробуем получить header_image для {appid}")
     header_url = await get_header_image_url_from_api(session, appid)
     if header_url:
-        logging.info(f"[API] Найден header_image из Steam API для {appid}: {header_url}")
+        #logging.info(f"[API] Найден header_image из Steam API для {appid}: {header_url}")
+        print(f"[API] Найден header_image из Steam API для {appid}: {header_url}")
 
     if header_url and await download_image(session, header_url, local_path):
         return f"/static/images/header/{appid}.jpg"
 
-    logging.warning(f"[Фон] Не удалось получить header для {appid}")
+    #logging.warning(f"[Фон] Не удалось получить header для {appid}")
     return ""  # можно подставить заглушку
 
 
@@ -97,37 +102,82 @@ MONTHS_MAP = {
     7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
 }
 
+RUSSIAN_MONTHS = {
+    'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
+    'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
+    'янв.': 1, 'февр.': 2, 'марта': 3, 'апр.': 4, 'мая': 5, 'июн.': 6,
+    'июл.': 7, 'авг.': 8, 'сент.': 9, 'окт.': 10, 'нояб.': 11, 'дек.': 12,
+    'янв': 1, 'февр': 2, 'мар': 3, 'апр': 4, 'май': 5, 'июн': 6,
+    'июл': 7, 'авг': 8, 'сент': 9, 'окт': 10, 'нояб': 11, 'дек': 12,
+    'январь': 1, 'февраль': 2, 'март': 3, 'апрель': 4, 'май': 5, 'июнь': 6,
+    'июль': 7, 'август': 8, 'сентябрь': 9, 'октябрь': 10, 'ноябрь': 11, 'декабрь': 12,
+}
 
 def parse_release_date(date_str: str):
-    """
-    Парсим даты вида:
-    - '26 May, 2025' (день, месяц, год)
-    - 'Jun 11, 2025' (месяц, день, год)
-    - 'May, 2025'  (без дня)
-    Возвращаем datetime.date или None (если дня нет).
-    """
-    try:
-        # Формат "день месяц, год" (например, '26 May, 2025')
-        dt = datetime.strptime(date_str, "%d %b, %Y")
-        return dt.date()
-    except ValueError:
-        pass
 
-    try:
-        # Формат "месяц день, год" (например, 'Jun 11, 2025')
-        dt = datetime.strptime(date_str, "%b %d, %Y")
-        return dt.date()
-    except ValueError:
-        pass
+    date_str = date_str.strip().lower()
+    date_str = re.sub(r'\s*г\.?$', '', date_str).strip()
+    date_str = date_str.replace('\xa0', ' ')  # <--- добавь это
 
-    try:
-        # Формат без дня (например, 'May, 2025')
-        dt = datetime.strptime(date_str, "%b, %Y")
-        return None
-    except ValueError:
-        pass
 
-    return None  # Формат не распознан
+    # Английские форматы с днем
+    for fmt in ("%d %b, %Y", "%b %d, %Y", "%d %B, %Y", "%B %d, %Y"):
+        try:
+            parsed = datetime.strptime(date_str, fmt)
+            return parsed.date()
+        except ValueError:
+            continue
+
+    # Английские форматы только месяц и год
+    for fmt in ("%b %Y", "%B %Y"):
+        try:
+            parsed = datetime.strptime(date_str, fmt)
+            return date(parsed.year, parsed.month, 1)
+        except ValueError:
+            continue
+
+    # Русские форматы с числом
+    match = re.match(r'(\d{1,2})\s+([а-яё]+)\.?\s+(\d{4})', date_str)
+    if match:
+        day, month_name, year = match.groups()
+        month_key = month_name.strip()
+
+        month = RUSSIAN_MONTHS.get(month_key)
+        if month:
+            try:
+                return date(int(year), month, int(day))
+            except ValueError:
+                pass
+
+    # Русские форматы без числа (только месяц и год)
+    match = re.match(r'([а-яё.]+)\s+(\d{4})', date_str)
+    if match:
+        month_name, year = match.groups()
+        month = RUSSIAN_MONTHS.get(month_name.strip())
+        if month:
+            return date(int(year), month, 1)
+
+    # Кварталы английские, например Q1 2025
+    match = re.match(r'q([1-4])\s+(\d{4})', date_str)
+    if match:
+        quarter, year = match.groups()
+        month = (int(quarter) - 1) * 3 + 1
+        return date(int(year), month, 1)
+
+    # Кварталы русские, например 1 квартал 2025
+    match = re.match(r'(\d)\s*квартал\s*(\d{4})', date_str)
+    if match:
+        quarter, year = match.groups()
+        month = (int(quarter) - 1) * 3 + 1
+        return date(int(year), month, 1)
+
+    # Просто год
+    match = re.match(r'(\d{4})', date_str)
+    if match:
+        year = int(match.group(1))
+        return date(year, 1, 1)
+
+    return None
 
 
 # Получение релизов за месяц или за конкретный день
@@ -155,6 +205,35 @@ async def get_releases(
             7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
         }
 
+        FULL_EN_MONTHS = {
+            1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May',
+            6: 'June', 7: 'July', 8: 'August', 9: 'September', 10: 'October',
+            11: 'November', 12: 'December'
+        }
+
+        FULL_RU_MONTHS = {
+            1: 'Января', 2: 'Февраля', 3: 'Марта', 4: 'Апреля', 5: 'Мая',
+            6: 'Июня', 7: 'Июля', 8: 'Августа', 9: 'Сентября', 10: 'Октября',
+            11: 'Ноября', 12: 'Декабря'
+        }
+
+        RU_MONTHS_ABBR = {
+            1: 'янв.', 2: 'февр.', 3: 'мар.', 4: 'апр.', 5: 'мая', 6: 'июн.',
+            7: 'июл.', 8: 'авг.', 9: 'сент.', 10: 'окт.', 11: 'нояб.', 12: 'дек.'
+        }
+
+        ru_month_str = RU_MONTHS_ABBR.get(month)
+        like_pattern_ru_dot = f"%{ru_month_str} {year}%"  # пример: "%авг. 2014%"
+        like_pattern_ru_year_suffix = f"%{ru_month_str} {year} г.%"  # пример: "%авг. 2014 г.%"
+
+        month_str_full = FULL_EN_MONTHS.get(month)
+        like_pattern_full_eng_space = f"%{month_str_full} {year}%"
+        like_pattern_full_eng_comma = f"%{month_str_full}, {year}%"
+
+        ru_month_str_full = FULL_RU_MONTHS.get(month)
+        like_pattern_full_ru_space = f"%{ru_month_str_full} {year}%"
+        like_pattern_full_ru_comma = f"%{ru_month_str_full}, {year}%"
+
         month_str_eng = EN_MONTHS_ABBR.get(month)
         if not month_str_eng:
             raise ValueError(f"Invalid month number: {month}")
@@ -172,7 +251,13 @@ async def get_releases(
                 or_(
                     Release.release_date.like(like_pattern_comma),
                     Release.release_date.like(like_pattern_no_comma),
-                    Release.release_date.like(f"%{like_pattern_eng}%")
+                    Release.release_date.like(f"%{like_pattern_eng}%"),
+                    Release.release_date.like(like_pattern_full_eng_space),
+                    Release.release_date.like(like_pattern_full_eng_comma),
+                    Release.release_date.like(like_pattern_full_ru_space),
+                    Release.release_date.like(like_pattern_full_ru_comma),
+                    Release.release_date.like(like_pattern_ru_dot),
+                    Release.release_date.like(like_pattern_ru_year_suffix)
                 )
             )
             .filter(not_(or_(*excluded_conditions)))

@@ -8,7 +8,10 @@
 
 {% block content %}
 <h1 class="mb-4">Избранные игры пользователя {{ user.username }}</h1>
-
+<div class="d-grid gap-2 d-md-flex justify-content-md-between">
+  <a href="/last_releases" class="btn btn-primary mb-5 mt-1">Последние обновления</a>
+  <a href="/wanted" class="btn btn-primary mb-5 mt-1">Самые ожидаемые игры года</a>
+</div>
 {% if releases %}
 <div class="row" id="releases-div">
     {% for rel in releases %}
@@ -44,90 +47,105 @@
 {% block included_js %}
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
-    $(function () {
-        const monthMap = {
-            "jan": 0, "feb": 1, "mar": 2, "apr": 3,
-            "may": 4, "jun": 5, "jul": 6, "aug": 7,
-            "sep": 8, "oct": 9, "nov": 10, "dec": 11,
-            "янв": 0, "фев": 1, "мар": 2, "апр": 3,
-            "май": 4, "мая": 4, "июн": 5, "июл": 6,
-            "авг": 7, "сен": 8, "сент": 8, "окт": 9,
-            "ноя": 10, "дек": 11
-        };
+$(function () {
+    const monthMap = {
+        "jan": 0, "feb": 1, "mar": 2, "apr": 3,
+        "may": 4, "jun": 5, "jul": 6, "aug": 7,
+        "sep": 8, "oct": 9, "nov": 10, "dec": 11,
+        "янв": 0, "янв.": 0, "фев": 1, "февр": 1, "февр.": 1,
+        "мар": 2, "мар.": 2, "апр": 3, "апр.": 3,
+        "май": 4, "мая": 4,
+        "июн": 5, "июн.": 5, "июл": 6, "июл.": 6,
+        "авг": 7, "авг.": 7,
+        "сен": 8, "сент": 8, "сент.": 8,
+        "окт": 9, "окт.": 9,
+        "ноя": 10, "нояб": 10, "нояб.": 10,
+        "дек": 11, "дек.": 11
+    };
 
-        // Месяцы в родительном падеже для вывода
-        const russianMonths = [
-            "января", "февраля", "марта", "апреля",
-            "мая", "июня", "июля", "августа",
-            "сентября", "октября", "ноября", "декабря"
-        ];
+    const russianMonths = [
+        "января", "февраля", "марта", "апреля",
+        "мая", "июня", "июля", "августа",
+        "сентября", "октября", "ноября", "декабря"
+    ];
 
-        function parseReleaseDate(text) {
-            if (!text) return new Date(0);
-            const lower = text.toLowerCase();
-            if (lower.includes("coming soon")) return new Date(0);
+    function parseReleaseDate(text) {
+        if (!text) return new Date(0);
+        const lower = text.toLowerCase();
+        if (lower.includes("coming soon")) return new Date(0);
 
-            const regex1 = /(\d{1,2})\s*([а-яa-z]{3,4}),?\s*(\d{4})/i;       // День Месяц Год
-            const regex2 = /([а-яa-z]{3,4})\s*(\d{1,2}),?\s*(\d{4})/i;       // Месяц День, Год
+        // Форматы с днем, месяцем и годом, месяц может быть русским с точкой или без, или английским
+        const regexDayMonthYear = /(\d{1,2})\s*([а-яёa-z\.]+),?\s*(\d{4})/i;
+        // Форматы с месяцем, днем и годом
+        const regexMonthDayYear = /([а-яёa-z\.]+)\s*(\d{1,2}),?\s*(\d{4})/i;
+        // Формат только месяц и год (русский или английский)
+        const regexMonthYear = /([а-яёa-z\.]+)\s+(\d{4})/i;
 
-            let day, monthStr, year;
+        let day, monthStr, year;
 
-            let match = lower.match(regex1);
+        let match = lower.match(regexDayMonthYear);
+        if (match) {
+            day = parseInt(match[1], 10);
+            monthStr = match[2].replace('.', '');
+            year = parseInt(match[3], 10);
+        } else {
+            match = lower.match(regexMonthDayYear);
             if (match) {
-                day = parseInt(match[1], 10);
-                monthStr = match[2].slice(0, 3);
+                monthStr = match[1].replace('.', '');
+                day = parseInt(match[2], 10);
                 year = parseInt(match[3], 10);
             } else {
-                match = lower.match(regex2);
+                match = lower.match(regexMonthYear);
                 if (match) {
-                    monthStr = match[1].slice(0, 3);
-                    day = parseInt(match[2], 10);
-                    year = parseInt(match[3], 10);
+                    monthStr = match[1].replace('.', '');
+                    day = 1; // нет дня — берем первый
+                    year = parseInt(match[2], 10);
                 } else {
                     return new Date(0);
                 }
             }
-
-            const month = monthMap[monthStr];
-            if (isNaN(month) || isNaN(year) || isNaN(day)) return new Date(0);
-
-            return new Date(year, month, day);
         }
 
-        function formatDateRussian(date) {
-            if (!(date instanceof Date) || isNaN(date)) return "";
-            const day = date.getDate();
-            const month = russianMonths[date.getMonth()] || "";
-            const year = date.getFullYear();
-            return `${day} ${month} ${year}`;
-        }
+        const month = monthMap[monthStr];
+        if (month === undefined || isNaN(year) || isNaN(day)) return new Date(0);
 
-        const cards = $("#releases-div > div.col-md-3").get();
+        return new Date(year, month, day);
+    }
 
-        cards.sort((a, b) => {
-            const textA = $(a).find(".card-text").text().replace('Дата релиза:', '').trim();
-            const textB = $(b).find(".card-text").text().replace('Дата релиза:', '').trim();
+    function formatDateRussian(date) {
+        if (!(date instanceof Date) || isNaN(date)) return "";
+        const day = date.getDate();
+        const month = russianMonths[date.getMonth()] || "";
+        const year = date.getFullYear();
+        return `${day} ${month} ${year}`;
+    }
 
-            const dateA = parseReleaseDate(textA);
-            const dateB = parseReleaseDate(textB);
+    const cards = $("#releases-div > div.col-md-3").get();
 
-            return dateA - dateB;
-        });
+    cards.sort((a, b) => {
+        const textA = $(a).find(".card-text").text().replace('Дата релиза:', '').trim();
+        const textB = $(b).find(".card-text").text().replace('Дата релиза:', '').trim();
 
-        const container = $("#releases-div");
-        container.empty();
+        const dateA = parseReleaseDate(textA);
+        const dateB = parseReleaseDate(textB);
 
-        // Вставляем отсортированные карточки и обновляем текст даты
-        cards.forEach(card => {
-            const $card = $(card);
-            const oldText = $card.find(".card-text").text().replace('Дата релиза:', '').trim();
-            const parsedDate = parseReleaseDate(oldText);
-            const newDateText = parsedDate.getTime() > 0 ? formatDateRussian(parsedDate) : "Дата неизвестна";
-
-            $card.find(".card-text").text("Дата релиза: " + newDateText);
-            container.append(card);
-        });
+        return dateA - dateB;
     });
+
+    const container = $("#releases-div");
+    container.empty();
+
+    cards.forEach(card => {
+        const $card = $(card);
+        const oldText = $card.find(".card-text").text().replace('Дата релиза:', '').trim();
+        const parsedDate = parseReleaseDate(oldText);
+        const newDateText = parsedDate.getTime() > 0 ? formatDateRussian(parsedDate) : "Дата неизвестна";
+
+        $card.find(".card-text").text("Дата релиза: " + newDateText);
+        container.append(card);
+    });
+});
 </script>
+
 
 {% endblock %}

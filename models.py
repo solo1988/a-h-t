@@ -1,9 +1,19 @@
 # models.py
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date
 from sqlalchemy.orm import relationship
 from database import Base
-import datetime
+from datetime import datetime
 from pydantic import BaseModel
+
+class Wanted(Base):
+    __tablename__ = "wanted"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    rawg_id = Column(Integer, nullable=True)
+    added = Column(Integer, nullable=True)
+    release_date = Column(Date, nullable=True)
+    appid = Column(Integer, nullable=True)  # Связь с таблицей releases
 
 class Favorite(Base):
     __tablename__ = "favorites"
@@ -21,7 +31,10 @@ class Release(Base):
     release_date = Column(String, nullable=True)
     release_date_checked = Column(Boolean, default=False)
     type = Column(String, nullable=True)
-    genres = Column(String, nullable=True)  # Новое поле: ID жанров через запятую
+    genres = Column(String, nullable=True)
+    updated_at = Column(String, nullable=True)  # ISO-строка с датой и временем
+    unavailable = Column(Boolean, default=False)
+
     favorites = relationship("Favorite", back_populates="release", cascade="all, delete")
 
 class User(Base):
