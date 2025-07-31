@@ -64,6 +64,7 @@
                     <div class="my-2"><strong>Издатель:</strong> ${publishers}</div>
                     <div class="my-2"><strong>Жанры:</strong> ${genres}</div>
                     <div class="my-2"><strong>Дата релиза:</strong> ${game.release_date && game.release_date.date ? game.release_date.date : 'Нет данных'}</div>
+                    <div class="my-2"><strong>Языки:</strong> ${game.supported_languages}</div>
                     <div class="my-2"><strong>Appid:</strong> {{ appid }}</div>
                     <div class="my-2 d-inline"><strong>Добавить в избранное:</strong>
                         <form class="favorite-form d-inline" data-appid="{{ appid }}">

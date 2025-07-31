@@ -183,3 +183,5 @@ schemas.py
 static/images/header/
 static/images/background/
 games.db.bak
+.well-known/
+debug_appids.json

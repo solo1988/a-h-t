@@ -88,3 +88,6 @@ body {
 #search-overlay.show {
     display: block;
 }
+pre.bg-dark.text-white {
+  font-size: clamp(0.3rem, 1vw + 0.2rem, 1.25rem);
+}

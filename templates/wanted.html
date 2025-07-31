@@ -8,16 +8,18 @@
 {% if wanted %}
 <div class="row">
     {% for release in wanted %}
-    <div class="col-md-3 col-sm-6 mb-4">
+    <div class="col-md-3 col-sm-6 mb-4 position-relative">
         <div class="card h-100 shadow-sm">
             <img src="/static/images/header/{{ release.appid }}.jpg"
                  class="card-img-top" alt="{{ release.name }}">
             <div class="card-body d-flex flex-column">
                 <h6 class="card-title mb-2">{{ release.name }}</h6>
-                <p class="card-text text-muted mt-auto">Количество ожидающих: {{ release.added }}</p>
             </div>
             <a href="/release/{{ release.appid }}" class="stretched-link"></a>
         </div>
+        <span class="position-absolute top-100 start-50 translate-middle badge rounded-pill bg-danger">
+                {{ release.added }} ожидающих
+        </span>
     </div>
     {% endfor %}
 </div>

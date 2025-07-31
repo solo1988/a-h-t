@@ -4,7 +4,8 @@
 
 {% block install_button %}
 
-{% block white_bg %}<div class="white-tint"></div>{% endblock %}
+{% block white_bg %}
+<div class="white-tint"></div>{% endblock %}
 
 <button id="install-btn"
         style="display: none; position: fixed; bottom: 16px; right: 16px; padding: 10px 16px; z-index: 9999;">
@@ -12,7 +13,13 @@
 </button>{% endblock %}
 
 {% block welcome %}<h1 class="text-center mt-5">Привет, {{ user.username }}!</h1>{% endblock %}
-
+{% block log_button %}
+<div class="text-end me-3">
+    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#logModal">
+        📄 Лог
+    </button>
+</div>
+{% endblock %}
 {% block add_game %}
 <form id="addGameForm">
     <div class="form-floating mb-3 input-group">
@@ -51,8 +58,97 @@
         </div>
     </div>
     {% endfor %}
-</div>{% endblock %}
+    <div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="logModalLabel">Логи</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
 
+                    <!-- Tabs nav -->
+                    <ul class="nav nav-tabs" id="logTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="app-tab" data-bs-toggle="tab" data-bs-target="#app-log"
+                                    type="button" role="tab" aria-controls="app-log" aria-selected="true">app.log
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="releases-tab" data-bs-toggle="tab"
+                                    data-bs-target="#releases-log"
+                                    type="button" role="tab" aria-controls="releases-log" aria-selected="false">
+                                releases.log
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="updater-tab" data-bs-toggle="tab" data-bs-target="#updater-log"
+                                    type="button" role="tab" aria-controls="updater-log" aria-selected="false">
+                                updater.log
+                            </button>
+                        </li>
+                    </ul>
+
+                    <!-- Tabs content -->
+                    <div class="tab-content mt-3">
+                        <div class="tab-pane fade show active" id="app-log" role="tabpanel" aria-labelledby="app-tab">
+                            <pre id="appLogContent" class="bg-dark text-white p-3 rounded"
+                                 style="max-height: 600px; overflow-y: auto;">Загрузка...</pre>
+                        </div>
+                        <div class="tab-pane fade" id="releases-log" role="tabpanel" aria-labelledby="releases-tab">
+                            <pre id="releasesLogContent" class="bg-dark text-white p-3 rounded"
+                                 style="max-height: 600px; overflow-y: auto;">Загрузка...</pre>
+                        </div>
+                        <div class="tab-pane fade" id="updater-log" role="tabpanel" aria-labelledby="updater-tab">
+                            <pre id="updaterLogContent" class="bg-dark text-white p-3 rounded"
+                                 style="max-height: 600px; overflow-y: auto;">Загрузка...</pre>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>{% endblock %}
+{% block included_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const logModal = document.getElementById('logModal');
+        const logMap = {
+            'app-tab': {path: '/log/app', target: 'appLogContent'},
+            'releases-tab': {path: '/log/releases', target: 'releasesLogContent'},
+            'updater-tab': {path: '/log/updater', target: 'updaterLogContent'}
+        };
+
+        // При открытии модалки подгружаем первый лог
+        logModal.addEventListener('show.bs.modal', () => {
+            loadLog('app-tab');
+        });
+
+        // Подгрузка лога при переключении вкладки
+        Object.keys(logMap).forEach(tabId => {
+            document.getElementById(tabId).addEventListener('click', () => {
+                loadLog(tabId);
+            });
+        });
+
+        function loadLog(tabId) {
+            const logInfo = logMap[tabId];
+            const target = document.getElementById(logInfo.target);
+            target.textContent = 'Загрузка...';
+            fetch(logInfo.path)
+                .then(response => response.text())
+                .then(text => {
+                    target.textContent = text;
+                })
+                .catch(() => {
+                    target.textContent = 'Не удалось загрузить лог.';
+                });
+        }
+    });
+</script>
+{% endblock %}
 {% block install_scripts %}
 <script src="/static/install.js"></script>
 <script src="/static/subscription.js"></script>{% endblock %}

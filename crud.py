@@ -68,7 +68,8 @@ async def get_header_image_url_from_api(session: aiohttp.ClientSession, appid: i
                 if entry.get("success") and "data" in entry:
                     return entry["data"].get("header_image", "")
     except Exception as e:
-        logging.error(f"[Steam API] Ошибка получения header_image для {appid}: {e}")
+        #logging.error(f"[Steam API] Ошибка получения header_image для {appid}: {e}")
+        print(f"[Steam API] Ошибка получения header_image для {appid}: {e}")
     return ""
 
 
@@ -288,7 +289,8 @@ async def get_releases(
         return calendar_data
 
     except Exception as e:
-        logging.error(f"Ошибка при выборке релизов: {str(e)}")
+        #logging.error(f"Ошибка при выборке релизов: {str(e)}")
+        print(f"Ошибка при выборке релизов: {str(e)}")
         raise
 
 
@@ -327,7 +329,7 @@ async def get_games(db: AsyncSession, id: int):
         return games
 
     except Exception as e:
-        logging.error(f"Ошибка при выборке игр: {str(e)}")
+        #logging.error(f"Ошибка при выборке игр: {str(e)}")
         print(f"Error while fetching games: {str(e)}")
         raise e
 
@@ -366,7 +368,7 @@ async def get_total_achievements_for_game(db: AsyncSession, appid: int, id: int)
         print(f"Total achievements for appid {appid}: {len(achievements)}")  # Логируем общее количество достижений
         return len(achievements)
     except Exception as e:
-        logging.error(f"Ошибка при выборке ачивок для игры appid {appid}: {str(e)}")
+        #logging.error(f"Ошибка при выборке ачивок для игры appid {appid}: {str(e)}")
         print(f"Error while fetching total achievements for appid {appid}: {str(e)}")
         raise e
 
@@ -388,6 +390,6 @@ async def get_earned_achievements_for_game(db: AsyncSession, appid: int, id: int
             f"Earned achievements for appid {appid}: {earned_achievements}")  # Логируем количество полученных достижений
         return earned_achievements
     except Exception as e:
-        logging.error(f"Ошибка при выборке полученных ачивок для игры appid {appid}: {str(e)}")
+        #logging.error(f"Ошибка при выборке полученных ачивок для игры appid {appid}: {str(e)}")
         print(f"Error while fetching earned achievements for appid {appid}: {str(e)}")
         raise e

@@ -1,7 +1,13 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import datetime
 import logging
+import json
 import os
 from typing import Optional
+import urllib.parse
 
 import dateparser
 from sqlalchemy import select
@@ -18,6 +24,15 @@ import httpx
 
 load_dotenv()
 
+logger = logging.getLogger("releases")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+file_handler = logging.FileHandler("releases.log", encoding="utf-8")
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_IDS = os.getenv("TELEGRAM_IDS", "")
 ALLOWED_USER_IDS = {int(uid) for uid in TELEGRAM_IDS.split(",") if uid.strip().isdigit()}
@@ -27,25 +42,57 @@ user_to_telegram_id = {
     2: 731299888,
 }
 
-
-async def send_telegram_message_with_image_async(chat_id: int, message: str, bot_token: str, image_url: str):
+async def send_telegram_message_with_image_async(chat_id: int, message: str, bot_token: str, image_url: str, buttons: list[dict]):
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+
+    # Добавляем хэштег, если его нет
+    if "#релиз" not in message:
+        message += "\n\n#релиз"
+
+    reply_markup = {
+        "inline_keyboard": [buttons]
+    }
+
     payload = {
         "chat_id": chat_id,
         "caption": message,
         "parse_mode": "HTML",
-        "photo": image_url
+        "photo": image_url,
+        "reply_markup": json.dumps(reply_markup)
     }
+
     async with httpx.AsyncClient() as client:
         response = await client.post(url, data=payload)
-        return response
+        response_data = response.json()
 
+        if not response_data.get("ok"):
+            print(f"[send_telegram_message] Ошибка отправки сообщения: {response_data}")
+            return response
+
+        # Получаем message_id отправленного сообщения
+        message_id = response_data["result"]["message_id"]
+
+        # Пытаемся закрепить сообщение
+        pin_url = f"https://api.telegram.org/bot{bot_token}/pinChatMessage"
+        pin_payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "disable_notification": True  # без уведомления
+        }
+
+        try:
+            pin_response = await client.post(pin_url, data=pin_payload)
+            pin_data = pin_response.json()
+            if not pin_data.get("ok"):
+                print(f"[pinChatMessage] Не удалось закрепить сообщение: {pin_data}")
+        except Exception as e:
+            print(f"[pinChatMessage] Исключение при попытке закрепить сообщение: {e}")
+
+        return response
 
 def parse_release_date(date_str: str) -> Optional[datetime.date]:
     if not date_str:
         return None
-
-    #logging.info(f"[check_favorites] Исходная строка для dateparser: '{date_str}'")
 
     parsed = dateparser.parse(
         date_str,
@@ -54,17 +101,14 @@ def parse_release_date(date_str: str) -> Optional[datetime.date]:
 
     if parsed:
         parsed_date = parsed.date()
-        #logging.info(f"[check_favorites] Успешно распарсено '{date_str}' как {parsed_date}")
         return parsed_date
     else:
-        #logging.warning(f"[check_favorites] Не удалось распарсить дату: '{date_str}'")
         return None
 
 
 async def check_daily_releases():
-    #today = datetime.date.today() + datetime.timedelta(days=2)
     today = datetime.date.today()
-    #logging.info(f"[check_favorites] Проверка релизов на {today}")
+    logger.info(f"[check_favorites] Проверка релизов на {today}")
 
     async with SessionLocal() as session:
         stmt = (
@@ -75,7 +119,7 @@ async def check_daily_releases():
         result = await session.execute(stmt)
         favorites = result.scalars().all()
 
-        #logging.info(f"[check_favorites] Найдено избранных: {len(favorites)}")
+        logger.info(f"[check_favorites] Найдено избранных: {len(favorites)}")
 
         releases_by_user = {}
 
@@ -86,38 +130,49 @@ async def check_daily_releases():
                 releases_by_user.setdefault(fav.user_id, []).append(release)
 
         if not releases_by_user:
-            #logging.info("[check_favorites] Сегодня нет релизов в избранных играх.")
+            logger.info("[check_favorites] Сегодня нет релизов в избранных играх.")
             return
 
-        #logging.info(f"[check_favorites] Сегодня выходят избранные игры: {releases_by_user}")
+        logger.info(f"[check_favorites] Сегодня выходят избранные игры: {releases_by_user}")
 
         for user_id, releases in releases_by_user.items():
             telegram_id = user_to_telegram_id.get(user_id)
             if telegram_id is None or telegram_id not in ALLOWED_USER_IDS:
-                #logging.warning(f"[check_favorites] Пользователь {user_id} не в списке разрешённых.")
                 continue
 
-            message_lines = [f"🎮 <b>Сегодня выходят игры из вашего избранного:</b>\n"]
             for rel in releases:
-                message_lines.append(f"• {rel.name} — дата релиза: {rel.release_date}")
+                message_lines = [f"🎮 <b>Сегодня выходят игры из вашего избранного:</b>\n"]
+                message_lines.append(f"• {rel.name} — дата релиза: {rel.release_date}\n\n")
+                message_lines.append("#релиз")
+                message = "\n".join(message_lines)
 
-            message = "\n".join(message_lines)
+                image_url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{rel.appid}/header.jpg"
+                query = urllib.parse.quote(rel.name)
 
-            image_url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{releases[0].appid}/header.jpg"
+                buttons = [
+                    {"text": "Rutor", "url": f"https://rutor.info/search/0/8/000/0/{query}"},
+                    {"text": "RuTracker", "url": f"https://rutracker.org/forum/tracker.php?f=...&nm={query}"}
+                ]
 
-            try:
-                response = await send_telegram_message_with_image_async(telegram_id, message, BOT_TOKEN, image_url)
-            except Exception as e:
-                #logging.error(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
-                print(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
+                try:
+                    response = await send_telegram_message_with_image_async(
+                        telegram_id, message, BOT_TOKEN, image_url, buttons
+                    )
+                except Exception as e:
+                    print(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
 
 
 def start_scheduler():
     scheduler = AsyncIOScheduler()
-    #logging.info("[check_favorites] Планировщик запущен")
+    logger.info("[check_favorites] Планировщик запущен")
     scheduler.add_job(
         check_daily_releases,
-        CronTrigger(hour=14, minute=58, timezone=timezone("Europe/Moscow"))
+        CronTrigger(hour=11, minute=0, timezone=timezone("Europe/Moscow")),
+        misfire_grace_time=300  # в секундах
     )
     scheduler.start()
     return scheduler
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(check_daily_releases())
