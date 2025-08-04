@@ -175,13 +175,10 @@ cython_debug/
 
 #My files
 cert.pem
-database.db
 games.db
 key.pem
-schemas.py
 .env
 static/images/header/
 static/images/background/
-games.db.bak
 .well-known/
 debug_appids.json
