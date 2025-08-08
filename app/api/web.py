@@ -1,18 +1,21 @@
-from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, timedelta
 from calendar import monthrange
 from sqlalchemy.future import select
 from sqlalchemy import text
+import traceback
 
 from app.core.auth import manager
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.games import get_games, get_user_favorites, get_releases, get_game_name
+from app.core.images import ensure_header_image,ensure_background_image
+from app.core.games import get_games, get_user_favorites, get_releases, get_game_name, archive_game, unarchive_game, get_archived_games
 from app.core.achievements import get_achievements_for_game
-from app.models import Wanted, Release, Favorite
+from app.models import Wanted, Release, Favorite, Game
 from app.core.logger import logger_app
+
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -183,3 +186,44 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
                                                "background": background_url, "now": now}, )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch games data: {str(e)}")
+
+# Архивирование игры
+@router.post("/archive/{appid}")
+async def archive_game_endpoint(appid: int, request: Request, user=Depends(manager)):
+    async with SessionLocal() as session:
+        await archive_game(session, user.id, appid)
+        return JSONResponse({"status": "archived", "appid": appid}, status_code=status.HTTP_200_OK)
+
+# Возврат игры из архива
+@router.post("/unarchive/{appid}")
+async def unarchive_game_endpoint(appid: int, request: Request, user=Depends(manager)):
+    async with SessionLocal() as session:
+        await unarchive_game(session, user.id, appid)
+        return JSONResponse({"status": "unarchived", "appid": appid}, status_code=status.HTTP_200_OK)
+
+# Страница архива
+@router.get("/archived")
+async def get_archived_games_endpoint(request: Request, user=Depends(manager)):
+    async with SessionLocal() as session:
+        games = await get_archived_games(session, user.id)
+
+        result = []
+        for archived_game in games:
+            stmt = await session.execute(select(Game).where(Game.appid == archived_game.appid, Game.user_id == user.id))
+            game = stmt.scalar_one_or_none()
+            if game:
+                game.background = await ensure_header_image(session, game.appid)
+                await ensure_background_image(session, game.appid)
+                result.append({
+                    "appid": game.appid,
+                    "name": game.name,
+                    "background": game.background
+                })
+            else:
+                result.append({
+                    "appid": archived_game.appid,
+                    "name": f"Игра {archived_game.appid}",
+                    "background": f"/static/images/background/{archived_game.appid}.jpg"
+                })
+
+        return JSONResponse(result, status_code=status.HTTP_200_OK)

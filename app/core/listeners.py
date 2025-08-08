@@ -1,10 +1,11 @@
 import websockets
 import json
 import asyncio
-import logging
 from app.core.database import SessionLocal
 
 from app.core.achievements import update_achievement
+from app.core.logger import logger_app
+
 
 async def websocket_listener():
     uri = "ws://192.168.1.111:8082"
@@ -20,6 +21,6 @@ async def websocket_listener():
                         asyncio.create_task(
                             update_achievement(session, int(data["appID"]), data["achievement"], obtained_time,
                                                user_id))
-                        logging.info("Отправили ачивку с локального вебсокета")
+                        logger_app.info("Отправили ачивку с локального вебсокета")
         except Exception as e:
             await asyncio.sleep(5)

@@ -174,11 +174,11 @@ cython_debug/
 .pypirc
 
 #My files
-cert.pem
-games.db
-key.pem
+cert/cert.pem
+data/games.db
+cert/key.pem
 .env
-static/images/header/
-static/images/background/
+app/core/static/images/header/
+app/core/static/images/background/
+static/images/
 .well-known/
-debug_appids.json

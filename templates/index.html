@@ -18,6 +18,9 @@
     <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#logModal">
         📄 Лог
     </button>
+    <button class="btn btn-outline-secondary me-2" data-bs-toggle="modal" data-bs-target="#archiveModal">
+        🗃️ Архив
+    </button>
 </div>
 {% endblock %}
 {% block add_game %}
@@ -36,8 +39,15 @@
     {% set total = game.total_achievements %}
     {% set percent = (earned / total * 100) if total > 0 else 0 %}
     {% set border = 'border-5 border-warning' if percent > 99 else 'border-0' %}
-    <div class="col-md-4 my-3">
+    <div class="col-md-4 my-3 {% if game.is_archived %}d-none{% endif %}" data-appid="{{ game.appid }}">
         <div class="card d-flex flex-column h-100 {{border}} position-relative">
+            <div class="position-absolute top-0 start-0 m-2" style="z-index: 2;">
+                <button class="btn btn-sm btn-outline-light archive-btn position-relative"
+                        data-appid="{{ game.appid }}"
+                        title="Архивировать игру">
+                    🗄️
+                </button>
+            </div>
             <div class="position-absolute top-0 start-100 translate-middle">
                 {% if percent > 99 %}
                 <i class="bi bi-star-fill fs-1 text-danger"></i>
@@ -109,9 +119,102 @@
             </div>
         </div>
     </div>
+    <div class="modal fade" id="archiveModal" tabindex="-1" aria-labelledby="archiveModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="archiveModalLabel">Архивированные игры</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="archivedGamesContainer" class="row">
+                        <p class="text-muted">Загрузка архива...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
 </div>{% endblock %}
 {% block included_js %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        // --- Архивирование игры по кнопке на карточке ---
+        document.querySelectorAll(".archive-btn").forEach(button => {
+            button.addEventListener("click", function () {
+                const appid = this.dataset.appid;
+                fetch(`/archive/${appid}`, {method: "POST"})
+                    .then(response => {
+                        if (!response.ok) throw new Error("Ошибка архивирования");
+                        // Скрываем карточку на главной странице
+                        const card = this.closest(".col-md-4");
+                        if (card) card.classList.add("d-none");
+                    })
+                    .catch(err => {
+                        alert("Не удалось заархивировать игру: " + err.message);
+                    });
+            });
+        });
+
+        // --- Загрузка архива при открытии модалки ---
+        const archiveModal = document.getElementById("archiveModal");
+        archiveModal.addEventListener("show.bs.modal", function () {
+            fetch("/archived")
+                .then(response => response.json())
+                .then(games => {
+                    const container = document.getElementById("archivedGamesContainer");
+                    container.innerHTML = "";
+
+                    if (games.length === 0) {
+                        container.innerHTML = "<p class='text-muted'>Архив пуст.</p>";
+                        return;
+                    }
+
+                    games.forEach(game => {
+                        const col = document.createElement("div");
+                        col.className = "col-md-4 my-3";
+                        col.innerHTML = `
+                        <div class="card h-100 position-relative">
+                            <img class="card-img" src="${game.background}" alt="">
+                            <div class="card-img-overlay p-0 d-flex flex-column">
+                                <a href="/achievements/${game.appid}" class="stretched-link"></a>
+                                <button class="btn btn-sm btn-outline-light position-absolute top-0 start-0 m-2 restore-btn" data-appid="${game.appid}" style="z-index:2;">
+                                    ♻️
+                                </button>
+                                <p class="card-text py-2 bg-dark bg-opacity-75 text-white text-center mt-auto rounded">
+                                    <strong>${game.name}</strong>
+                                </p>
+                            </div>
+                        </div>`;
+                        container.appendChild(col);
+                    });
+
+                    // Обработка кнопок возврата из архива
+                    document.querySelectorAll(".restore-btn").forEach(button => {
+                        button.addEventListener("click", function () {
+                            const appid = this.dataset.appid;
+                            fetch(`/unarchive/${appid}`, {method: "POST"})
+                                .then(response => {
+                                    if (!response.ok) throw new Error("Ошибка возврата из архива");
+                                    this.closest(".col-md-4").remove(); // Убираем из модалки архива
+
+                                    // Показываем карточку на главной странице
+                                    const mainCard = document.querySelector(`.col-md-4[data-appid="${appid}"]`);
+                                    if (mainCard) mainCard.classList.remove("d-none");
+                                })
+                                .catch(err => {
+                                    alert("Не удалось вернуть игру из архива: " + err.message);
+                                });
+                        });
+                    });
+                })
+                .catch(() => {
+                    const container = document.getElementById("archivedGamesContainer");
+                    container.innerHTML = "<p class='text-danger'>Ошибка загрузки архива.</p>";
+                });
+        });
+    });
+</script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const logModal = document.getElementById('logModal');
@@ -151,4 +254,4 @@
 {% endblock %}
 {% block install_scripts %}
 <script src="/static/install.js"></script>
-<script src="/static/subscription.js"></script>{% endblock %}
+<script src="/static/subscription.js?v=2"></script>{% endblock %}

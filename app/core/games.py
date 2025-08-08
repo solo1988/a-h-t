@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Union
 from collections import defaultdict
-from app.models import Game, Release, Favorite, Wanted
+from app.models import Game, Release, Favorite, Wanted, ArchivedGame
 from sqlalchemy import not_, or_, func, literal
 from sqlalchemy.future import select
 from datetime import datetime, date
@@ -9,10 +9,10 @@ import aiohttp
 import aiofiles
 import asyncio
 import requests
-import logging
 import urllib.parse
 import time
 import httpx
+import traceback
 from sqlalchemy.orm import Session, selectinload
 from app.core.database import SyncSessionLocal, SessionLocal
 
@@ -110,10 +110,17 @@ async def get_releases(db: AsyncSession, year: int, month: int, user_id: int, da
         raise
 
 
-# Получение всех игр из базы данных
+# Все игры, с пометками архивных
 async def get_games(db: AsyncSession, id: int):
     try:
-        result = await db.execute(select(Game).filter(Game.user_id == id))
+        # Получаем список appid архивных игр
+        result = await db.execute(
+            select(ArchivedGame.appid).where(ArchivedGame.user_id == id)
+        )
+        archived_appids = {row[0] for row in result.all()}
+
+        # Получаем все игры пользователя
+        result = await db.execute(select(Game).where(Game.user_id == id))
         games = result.scalars().all()
 
         async with aiohttp.ClientSession() as session:
@@ -134,11 +141,14 @@ async def get_games(db: AsyncSession, id: int):
                 game.background = await ensure_header_image(session, game.appid)
                 await ensure_background_image(session, game.appid)
 
-        # Сортируем по дате получения
+        # Добавляем поле is_archived для шаблона
+        for game in games:
+            game.is_archived = (game.appid in archived_appids)
+
+        # Сортируем по дате последней полученной ачивки
         games.sort(key=lambda g: g.last_obtained_date, reverse=True)
 
         return games
-
     except Exception as e:
         print(f"Error while fetching games: {str(e)}")
         raise e
@@ -157,7 +167,7 @@ def fetch_all_steam_games():
     data = response.json()
     apps = data.get("applist", {}).get("apps", [])
 
-    logging.info(f"В базе стима → {len(apps)} игр")
+    logger.info(f"В базе стима → {len(apps)} игр")
     return apps
 
 
@@ -192,7 +202,7 @@ async def update_release_dates():
     skip_appids = [int(appid) for appid, count in genre_retries.items() if count >= settings.MAX_GENRE_RETRIES]
 
     try:
-        async with aiofiles.open(settings.MODIFIED_SINCE_FILE, mode='r') as f:
+        async with aiofiles.open(str(settings.MODIFIED_SINCE_FILE), mode='r') as f:
             if_modified_since = int((await f.read()).strip())
     except Exception:
         if_modified_since = 0
@@ -215,7 +225,7 @@ async def update_release_dates():
         if last_modified > max_last_modified:
             max_last_modified = last_modified
 
-    async with aiofiles.open(settings.MODIFIED_SINCE_FILE, mode='w') as f:
+    async with aiofiles.open(str(settings.MODIFIED_SINCE_FILE), mode='w') as f:
         await f.write(str(max_last_modified))
 
     games_to_update = list(
@@ -294,7 +304,8 @@ async def update_release_dates():
                         else:
                             genre_retries[str(appid)] = genre_retries.get(str(appid), 0) + 1
 
-                        if game.release_date != new_release_date:
+                        old_release_date = game.release_date
+                        if old_release_date != new_release_date:
                             game.release_date = new_release_date
                             changed = True
                         if game.type != new_type:
@@ -315,7 +326,14 @@ async def update_release_dates():
             game.release_date_checked = True
             if changed:
                 game.updated_at = datetime.utcnow().isoformat()
-                logger_update.info(f"Обновлено: appid={appid}, name={game.name}")
+                if old_release_date != new_release_date:
+                    logger_update.info(
+                        f"{game.name} ({appid}) обновлена: старая дата релиза — {old_release_date}, новая — {new_release_date}"
+                    )
+                else:
+                    logger_update.info(
+                        f"{game.name} ({appid}) обновлена: без изменения даты релиза ({new_release_date})"
+                    )
 
                 if appid == 3445830:
                     logger_update.info(
@@ -332,6 +350,8 @@ async def update_release_dates():
         db.close()
         save_genre_retries(genre_retries)
 
+    logger_update.info("-" * 40)
+
 
 # Получение избранного юзера
 async def get_user_favorites(user_id: int, session: AsyncSession) -> list[int]:
@@ -342,68 +362,71 @@ async def get_user_favorites(user_id: int, session: AsyncSession) -> list[int]:
 
 # Проверка релизов на сегодня
 async def check_daily_releases():
-    today = datetime.date.today()
-    logger.info(f"[check_favorites] Проверка релизов на {today}")
+    try:
+        today = date.today()
+        logger.info(f"[check_favorites] Проверка релизов на {today}")
+        async with SessionLocal() as session:
+            stmt = (
+                select(Favorite)
+                .options(selectinload(Favorite.release))
+                .join(Release, Favorite.appid == Release.appid)
+            )
+            result = await session.execute(stmt)
+            favorites = result.scalars().all()
 
-    async with SessionLocal() as session:
-        stmt = (
-            select(Favorite)
-            .options(selectinload(Favorite.release))
-            .join(Release, Favorite.appid == Release.appid)
-        )
-        result = await session.execute(stmt)
-        favorites = result.scalars().all()
+            logger.info(f"[check_favorites] Найдено избранных: {len(favorites)}")
 
-        logger.info(f"[check_favorites] Найдено избранных: {len(favorites)}")
+            releases_by_user = {}
 
-        releases_by_user = {}
+            for fav in favorites:
+                release = fav.release
+                parsed_date = parse_release_date_fav(release.release_date)
+                if parsed_date == today:
+                    releases_by_user.setdefault(fav.user_id, []).append(release)
 
-        for fav in favorites:
-            release = fav.release
-            parsed_date = parse_release_date_fav(release.release_date)
-            if parsed_date == today:
-                releases_by_user.setdefault(fav.user_id, []).append(release)
+            if not releases_by_user:
+                logger.info("[check_favorites] Сегодня нет релизов в избранных играх.")
+                return
 
-        if not releases_by_user:
-            logger.info("[check_favorites] Сегодня нет релизов в избранных играх.")
-            return
+            user_names = {1: "Слава", 2: "Коля"}
 
-        user_names = {1: "Слава", 2: "Коля"}
+            for user_id, releases in releases_by_user.items():
+                telegram_id = settings.USER_TO_TELEGRAM_ID.get(user_id)
+                if telegram_id is None or telegram_id not in settings.TELEGRAM_IDS:
+                    continue
 
-        for user_id, releases in releases_by_user.items():
-            telegram_id = settings.USER_TO_TELEGRAM_ID.get(user_id)
-            if telegram_id is None or telegram_id not in settings.TELEGRAM_IDS:
-                continue
+                game_names = ', '.join(rel.name for rel in releases)
+                user_name = user_names.get(user_id, f"user_id={user_id}")
+                logger.info(f"[check_favorites] Выходят релизы из избранного пользователя {user_name}: {game_names}")
 
-            game_names = ', '.join(rel.name for rel in releases)
-            user_name = user_names.get(user_id, f"user_id={user_id}")
-            logger.info(f"[check_favorites] Выходят релизы из избранного пользователя {user_name}: {game_names}")
+                for rel in releases:
+                    message_lines = [f"🎮 <b>Сегодня выходят игры из вашего избранного:</b>\n"]
+                    message_lines.append(f"• {rel.name} — дата релиза: {rel.release_date}\n\n")
+                    message_lines.append("#релиз")
+                    message = "\n".join(message_lines)
 
-            for rel in releases:
-                message_lines = [f"🎮 <b>Сегодня выходят игры из вашего избранного:</b>\n"]
-                message_lines.append(f"• {rel.name} — дата релиза: {rel.release_date}\n\n")
-                message_lines.append("#релиз")
-                message = "\n".join(message_lines)
+                    image_url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{rel.appid}/header.jpg"
+                    query = urllib.parse.quote(rel.name)
 
-                image_url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{rel.appid}/header.jpg"
-                query = urllib.parse.quote(rel.name)
+                    buttons = [
+                        {"text": "Rutor", "url": f"https://rutor.info/search/0/8/000/0/{query}"},
+                        {"text": "RuTracker", "url": f"https://rutracker.org/forum/tracker.php?f=...&nm={query}"}
+                    ]
 
-                buttons = [
-                    {"text": "Rutor", "url": f"https://rutor.info/search/0/8/000/0/{query}"},
-                    {"text": "RuTracker", "url": f"https://rutracker.org/forum/tracker.php?f=...&nm={query}"}
-                ]
-
-                try:
-                    response = await send_telegram_message_with_image_async(
-                        telegram_id, message, settings.BOT_TOKEN, image_url, buttons
-                    )
-                except Exception as e:
-                    print(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
+                    try:
+                        response = await send_telegram_message_with_image_async(
+                            telegram_id, message, settings.BOT_TOKEN, image_url, buttons
+                        )
+                    except Exception as e:
+                        print(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
+    except Exception as e:
+        logger.error(f"[check_favorites] Ошибка в check_daily_releases: {e}")
+        logger.error(traceback.format_exc())
 
 
 # Проверка и сохранение самых ожидаемых игр
 def fetch_and_store_wanted():
-    current_year = datetime.date.today().year
+    current_year = date.today().year
     session: Session = SyncSessionLocal()
 
     try:
@@ -491,3 +514,31 @@ async def fetch_game_data(appid: int):
             game_data = response.json()
             return game_data
     return None
+
+async def archive_game(session: AsyncSession, user_id: int, appid: int):
+    result = await session.execute(
+        select(ArchivedGame).where(ArchivedGame.user_id == user_id, ArchivedGame.appid == appid)
+    )
+    if result.scalars().first():
+        return  # Уже в архиве
+
+    archived = ArchivedGame(user_id=user_id, appid=appid)
+    session.add(archived)
+    await session.commit()
+
+
+async def unarchive_game(session: AsyncSession, user_id: int, appid: int):
+    result = await session.execute(
+        select(ArchivedGame).where(ArchivedGame.user_id == user_id, ArchivedGame.appid == appid)
+    )
+    archived = result.scalars().first()
+    if archived:
+        await session.delete(archived)
+        await session.commit()
+
+# Отдача всех архивированных игр
+async def get_archived_games(session: AsyncSession, user_id: int):
+    result = await session.execute(
+        select(ArchivedGame).where(ArchivedGame.user_id == user_id)
+    )
+    return result.scalars().all()

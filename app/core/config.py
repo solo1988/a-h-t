@@ -51,13 +51,16 @@ class Settings:
     ]
 
     MAX_GENRE_RETRIES = 5
-    SKIP_FILE = "genre_retry.json"
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent  # корень проекта (если config.py в /app/core/)
+    DATA_DIR = BASE_DIR / "data"
+    SKIP_FILE = DATA_DIR / "genre_retry.json"
 
     STEAM_API_KEY = os.getenv("STEAM_API_KEY")
     STEAM_API_URL = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/"
     GET_APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
     FETCH_APP_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
-    MODIFIED_SINCE_FILE = "modified_since.txt"
+    MODIFIED_SINCE_FILE = DATA_DIR / "modified_since.txt"
+    DATABASE_PATH = DATA_DIR / "games.db"
 
     STATIC_DIR = Path(__file__).parent / "static" / "images" / "header"
     BACKGROUND_DIR = Path(__file__).parent / "static" / "images" / "background"

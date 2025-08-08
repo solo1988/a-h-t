@@ -14,7 +14,7 @@ document.getElementById("addGameForm").addEventListener("submit", async function
 
     let result = await response.json();
     if (response.ok) {
-        alert("Игра добавлена!");
+         location.reload();  // Перезагружаем страницу
     } else {
         alert("Ошибка: " + JSON.stringify(result));  // Показываем ошибку
     }

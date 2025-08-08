@@ -10,6 +10,7 @@ router = APIRouter()
 @router.post("/api/update_achievement")
 async def update_achievement_endpoint(data: AchievementData):
     async with SessionLocal() as session:
+        logger_app.info("Отправили ачивку с удаленного вебсокета")
         await update_achievement(
             session=session,
             appid=data.appid,
@@ -17,5 +18,4 @@ async def update_achievement_endpoint(data: AchievementData):
             obtained_time=data.obtained_time,
             user_id=data.user_id
         )
-        logger_app.info(f"Отправили ачивку с удаленного вебсокета, {data.achievement_name}")
         return {"message": "Achievement updated successfully"}

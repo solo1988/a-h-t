@@ -1,7 +1,9 @@
 import requests
-import logging
 import json
 import httpx
+
+from app.core.logger import logger_app
+
 
 def send_telegram_message_with_image(chat_id: int, message: str, bot_token: str, image_url: str):
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
@@ -9,12 +11,12 @@ def send_telegram_message_with_image(chat_id: int, message: str, bot_token: str,
     try:
         response = requests.post(url, data=payload, timeout=15)
         response.raise_for_status()
-        logging.info(f"Сообщение успешно отправлено в Telegram: {response.status_code}")
+        logger_app.info("Сообщение успешно отправлено в Telegram")
         return response
     except requests.exceptions.Timeout:
-        logging.error("Timeout при отправке сообщения в Telegram")
+        logger_app.error("Timeout при отправке сообщения в Telegram")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Ошибка при отправке сообщения в Telegram: {e}")
+        logger_app.error(f"Ошибка при отправке сообщения в Telegram: {e}")
     return None
 
 async def send_telegram_message_with_image_async(chat_id: int, message: str, bot_token: str, image_url: str, buttons: list[dict]):

@@ -1,5 +1,3 @@
-import logging
-
 from datetime import datetime
 from app.core.database import SessionLocal
 from sqlalchemy import func
@@ -10,6 +8,7 @@ from sqlalchemy.future import select
 from app.core.notifications import send_push_notification_async
 from app.core.config import settings
 from app.core.telegram import send_telegram_message_with_image
+from app.core.logger import logger_app
 
 
 # Получение всех достижений для игры по appid
@@ -67,7 +66,7 @@ async def update_achievement(session: AsyncSession, appid: int, achievement_name
     if achievement:
         achievement.obtained_date = obtained_date
         await session.commit()
-        logging.info(f"Обновлено достижение {achievement.displayname}")
+        logger_app.info(f"Обновлено достижение {achievement.displayname}")
 
         title = achievement.displayname
         body = f"Вы получили достижение: {achievement_name}!"
@@ -80,12 +79,13 @@ async def update_achievement(session: AsyncSession, appid: int, achievement_name
 
             for sub in subscriptions:
                 await send_push_notification_async(sub, title, body, icon, url)
+            logger_app.info(f"Пуши отправлены на {len(subscriptions)} подписок: {title}")
 
         result = await session.execute(select(Game).filter(Game.appid == appid).filter(Game.user_id == user_id))
         game = result.scalars().first()
 
         if game is None:
-            logging.error("Игра не найдена")
+            logger_app.error("Игра не найдена")
             return {"error": "Игра не найдена"}
 
         game_name = game.name
@@ -94,7 +94,8 @@ async def update_achievement(session: AsyncSession, appid: int, achievement_name
         for tg_user_id, telegram_id in settings.USER_TO_TELEGRAM.items():
             if user_id == tg_user_id:
                 send_telegram_message_with_image(telegram_id, message, settings.BOT_TOKEN, icon)
-                logging.info(f"Отправили уведомление в телеграм {title}")
+                logger_app.info(f"Отправили уведомление в телеграм {title}")
+                logger_app.info("-" * 40)
 
 
 # Формирование ссылок для ачивки

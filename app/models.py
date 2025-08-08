@@ -1,7 +1,15 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date, func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from pydantic import BaseModel
+
+
+class ArchivedGame(Base):
+    __tablename__ = "archived_games"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    appid = Column(Integer, index=True)
+    archived_at = Column(DateTime, default=func.now())
 
 class Wanted(Base):
     __tablename__ = "wanted"
