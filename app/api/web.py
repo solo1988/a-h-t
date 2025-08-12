@@ -10,12 +10,12 @@ import traceback
 from app.core.auth import manager
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.images import ensure_header_image,ensure_background_image
-from app.core.games import get_games, get_user_favorites, get_releases, get_game_name, archive_game, unarchive_game, get_archived_games
+from app.core.images import ensure_header_image, ensure_background_image
+from app.core.games import get_games, get_user_favorites, get_releases, get_game_name, archive_game, unarchive_game, get_archived_games, get_game_slug_powerpyx, \
+    youtube_search_link
 from app.core.achievements import get_achievements_for_game
 from app.models import Wanted, Release, Favorite, Game
 from app.core.logger import logger_app
-
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -174,18 +174,23 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
         try:
             achievements = await get_achievements_for_game(session, appid, user.id)
             game_name = await get_game_name(session, appid, user.id)
+            game_slug = await get_game_slug_powerpyx(game_name.name)
+            youtube_link = await youtube_search_link(game_name.name)
             background_url = f"/static/images/background/{appid}.jpg"
             now = datetime.now()
-            achievements_data = [{"name": achievement.displayname, "icon": achievement.icon, "earned": achievement.earned, "link": achievement.icongray,
-                                  "earned_date": achievement.obtained_date, }
-                                 for achievement in achievements
-                                 ]
+            achievements_data = [
+                {"name": achievement.displayname, "icon": achievement.icon, "earned": achievement.earned, "link": achievement.icongray,
+                 "earned_date": achievement.obtained_date, "yt_ach": await youtube_search_link(f"{game_name.name} {achievement.displayname}")}
+                for achievement in achievements
+            ]
 
             return templates.TemplateResponse("achievements.html",
                                               {"request": request, "appid": appid, "achievements": achievements_data, "game_name": game_name,
+                                               "game_slug": game_slug, "youtube": youtube_link,
                                                "background": background_url, "now": now}, )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch games data: {str(e)}")
+
 
 # Архивирование игры
 @router.post("/archive/{appid}")
@@ -194,12 +199,14 @@ async def archive_game_endpoint(appid: int, request: Request, user=Depends(manag
         await archive_game(session, user.id, appid)
         return JSONResponse({"status": "archived", "appid": appid}, status_code=status.HTTP_200_OK)
 
+
 # Возврат игры из архива
 @router.post("/unarchive/{appid}")
 async def unarchive_game_endpoint(appid: int, request: Request, user=Depends(manager)):
     async with SessionLocal() as session:
         await unarchive_game(session, user.id, appid)
         return JSONResponse({"status": "unarchived", "appid": appid}, status_code=status.HTTP_200_OK)
+
 
 # Страница архива
 @router.get("/archived")

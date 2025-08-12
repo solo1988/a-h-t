@@ -11,9 +11,11 @@ import asyncio
 import requests
 import urllib.parse
 import time
+import re
 import httpx
 import traceback
 from sqlalchemy.orm import Session, selectinload
+from urllib.parse import quote_plus
 from app.core.database import SyncSessionLocal, SessionLocal
 
 from app.core.images import ensure_header_image, ensure_background_image, download_header_image
@@ -24,7 +26,6 @@ from app.core.dates import parse_release_date, parse_release_date_fav
 from app.core.files import load_genre_retries, save_genre_retries
 from app.core.logger import logger, logger_update
 from app.core.telegram import send_telegram_message_with_image_async
-
 
 
 # Получение релизов за месяц или за конкретный день
@@ -161,6 +162,20 @@ async def get_game_name(db: AsyncSession, appid: int, id: int):
     return name
 
 
+# Получение названия игры для powerpyx
+async def get_game_slug_powerpyx(name: str) -> str:
+    name = name.lower()
+    name = re.sub(r'[^a-z0-9]+', '-', name)
+    name = re.sub(r'-{2,}', '-', name)
+    name = name.strip('-')
+    return name
+
+# Получение ссылки на йутуб для игры
+async def youtube_search_link(game_name: str) -> str:
+    query = quote_plus(f"{game_name} PowerPyx")
+    return f"https://www.youtube.com/results?search_query={query}"
+
+
 # Все игры из стима
 def fetch_all_steam_games():
     response = requests.get(settings.FETCH_APP_URL)
@@ -272,7 +287,7 @@ async def update_release_dates():
                     async with session.get(url, headers=headers, timeout=5) as resp:
                         if resp.status == 429:
                             wait_time = 2 ** attempt
-                            logger_update.warning(f"Steam API вернул 429 для appid={appid}, попытка {attempt+1}, ждём {wait_time} сек")
+                            logger_update.warning(f"Steam API вернул 429 для appid={appid}, попытка {attempt + 1}, ждём {wait_time} сек")
                             await asyncio.sleep(wait_time)
                             continue
                         elif resp.status == 403:
@@ -410,7 +425,8 @@ async def check_daily_releases():
 
                     buttons = [
                         {"text": "Rutor", "url": f"https://rutor.info/search/0/8/000/0/{query}"},
-                        {"text": "RuTracker", "url": f"https://rutracker.org/forum/tracker.php?f=1008,127,128,2203,2204,2226,278,5,50,51,52,53,54,635,646,647,900&nm={query}"}
+                        {"text": "RuTracker",
+                         "url": f"https://rutracker.org/forum/tracker.php?f=1008,127,128,2203,2204,2226,278,5,50,51,52,53,54,635,646,647,900&nm={query}"}
                     ]
 
                     try:
@@ -516,6 +532,7 @@ async def fetch_game_data(appid: int):
             return game_data
     return None
 
+
 async def archive_game(session: AsyncSession, user_id: int, appid: int):
     result = await session.execute(
         select(ArchivedGame).where(ArchivedGame.user_id == user_id, ArchivedGame.appid == appid)
@@ -536,6 +553,7 @@ async def unarchive_game(session: AsyncSession, user_id: int, appid: int):
     if archived:
         await session.delete(archived)
         await session.commit()
+
 
 # Отдача всех архивированных игр
 async def get_archived_games(session: AsyncSession, user_id: int):
