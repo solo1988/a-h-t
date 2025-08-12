@@ -350,7 +350,7 @@ async def update_release_dates():
         db.close()
         save_genre_retries(genre_retries)
 
-    logger_update.info("-" * 40)
+    logger_update.info("-" * 60)
 
 
 # Получение избранного юзера
@@ -405,12 +405,12 @@ async def check_daily_releases():
                     message_lines.append("#релиз")
                     message = "\n".join(message_lines)
 
-                    image_url = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{rel.appid}/header.jpg"
+                    image_url = f"https://achievs.fayya.keenetic.link/static/images/header/{rel.appid}.jpg"
                     query = urllib.parse.quote(rel.name)
 
                     buttons = [
                         {"text": "Rutor", "url": f"https://rutor.info/search/0/8/000/0/{query}"},
-                        {"text": "RuTracker", "url": f"https://rutracker.org/forum/tracker.php?f=...&nm={query}"}
+                        {"text": "RuTracker", "url": f"https://rutracker.org/forum/tracker.php?f=1008,127,128,2203,2204,2226,278,5,50,51,52,53,54,635,646,647,900&nm={query}"}
                     ]
 
                     try:
@@ -418,6 +418,7 @@ async def check_daily_releases():
                             telegram_id, message, settings.BOT_TOKEN, image_url, buttons
                         )
                     except Exception as e:
+                        logger.error(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
                         print(f"[check_favorites] Исключение при отправке сообщения пользователю {telegram_id}: {e}")
     except Exception as e:
         logger.error(f"[check_favorites] Ошибка в check_daily_releases: {e}")

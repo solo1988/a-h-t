@@ -63,6 +63,8 @@ async def add_game(request: Request, user=Depends(manager)):
         except IntegrityError:
             await db.rollback()
             raise HTTPException(status_code=500, detail="Ошибка при добавлении игры")
+        finally:
+            logger_app.info("-" * 60)
 
 # Обновление путей вручную для stratege
 @router.post("/update_paths")
@@ -105,6 +107,8 @@ async def update_paths(request: Request, user=Depends(manager)):
         except Exception as e:
             await db.rollback()
             raise HTTPException(status_code=500, detail=f"Ошибка при обновлении путей: {str(e)}")
+        finally:
+            logger_app.info("-" * 60)
 
 # Получение данных об игре из стим
 @router.get("/api/steam_appdetails/{appid}")

@@ -95,7 +95,7 @@ async def update_achievement(session: AsyncSession, appid: int, achievement_name
             if user_id == tg_user_id:
                 send_telegram_message_with_image(telegram_id, message, settings.BOT_TOKEN, icon)
                 logger_app.info(f"Отправили уведомление в телеграм {title}")
-                logger_app.info("-" * 40)
+                logger_app.info("-" * 60)
 
 
 # Формирование ссылок для ачивки
