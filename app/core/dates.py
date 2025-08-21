@@ -46,21 +46,24 @@ def parse_release_date(date_str: str):
         month_name, year = match.groups()
         month = settings.RUSSIAN_MONTHS.get(month_name.strip())
         if month:
-            return date(int(year), month, 1)
+            # return date(int(year), month, 1)
+            return None
 
     # Кварталы английские, например Q1 2025
     match = re.match(r'q([1-4])\s+(\d{4})', date_str)
     if match:
         quarter, year = match.groups()
         month = (int(quarter) - 1) * 3 + 1
-        return date(int(year), month, 1)
+        # return date(int(year), month, 1)
+        return None
 
     # Кварталы русские, например 1 квартал 2025
     match = re.match(r'(\d)\s*квартал\s*(\d{4})', date_str)
     if match:
         quarter, year = match.groups()
         month = (int(quarter) - 1) * 3 + 1
-        return date(int(year), month, 1)
+        # return date(int(year), month, 1)
+        return None
 
     # Просто год
     match = re.match(r'(\d{4})', date_str)

@@ -1,0 +1,270 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Календарь релизов — {{ month_name }} {{ current_year }}{% endblock %}
+
+{% block white_bg %}
+<div class="white-tint"></div>
+{% endblock %}
+
+{% block included_css %}
+<style>
+/* Фон и белый оттенок */
+.background-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('/static/main_bg.png');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    opacity: 0.7;
+    z-index: -1;
+    pointer-events: none;
+}
+
+.background-overlay .white-tint {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0.05);
+    z-index: 1;
+}
+
+body {
+    padding-bottom: 100px;
+}
+
+/* Сетка календаря */
+.calendar-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(1, 1fr);
+}
+
+.calendar-grid .card {
+    aspect-ratio: 1 / 1.2;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background-color: rgba(40, 40, 40, 0.97);
+    color: #fff;
+    border: none;
+    box-shadow: 0 0.25rem 0.5rem rgba(0,0,0,0.4);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.calendar-grid .card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.6);
+}
+
+/* Пустые карточки */
+.empty-day {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .calendar-grid {
+        grid-template-columns: repeat(7, 1fr);
+    }
+
+    .empty-day {
+        visibility: hidden;
+        pointer-events: none;
+        display: block;
+    }
+}
+
+/* Карусели */
+.carousel {
+  position: relative;
+}
+
+.carousel-inner {
+  position: relative;
+  padding-bottom: 2.5rem;
+}
+
+.carousel-indicators {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+}
+
+/* Бейджи */
+.badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+.card img {
+    border-radius: 0.25rem;
+}
+
+/* Адаптивность на мобилках */
+@media (max-width: 767.98px) {
+    .calendar-grid {
+        grid-template-columns: repeat(1, 1fr);
+    }
+    .empty-day {
+        display: none !important;
+    }
+}
+/* Белый текст и иконки внутри карусели */
+.carousel .carousel-item img {
+    display: block;
+    margin: 0 auto;
+}
+
+.carousel .carousel-indicators [data-bs-target] {
+    background-color: #fff; /* точки карусели */
+}
+
+.carousel .carousel-caption,
+.carousel-title {
+    color: #fff !important; /* белый текст */
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="mb-4" id="calendar-title">Календарь релизов — {{ month_name }} {{ current_year }}</h1>
+
+<div class="row my-3">
+    <div class="col-md-4 mb-3">
+        <select id="selectMonth" class="form-select form-select-dark">
+            {% for i in range(1, 13) %}
+            <option value="{{ i }}" {% if i== current_month_int %}selected{% endif %}>
+                {{ russian_months[i] }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-4 mb-3">
+        <select id="selectYear" class="form-select form-select-dark">
+            {% for y in range(2006, main_year+2) %}
+            <option value="{{ y }}" {% if y== current_year %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-4 mb-3">
+        <button class="btn btn-primary w-100" onclick="goToSelectedMonth()">Показать релизы</button>
+    </div>
+</div>
+
+{% set first_weekday = first_day_of_month.weekday() %}
+<div class="calendar-grid mb-5">
+    {% for _ in range(first_weekday) %}
+    <div class="card empty-day h-100"></div>
+    {% endfor %}
+
+    {% for day in range(1, days_in_month + 1) %}
+    {% set date_obj = first_day_of_month.replace(day=day).date() %}
+    {% set date_key = date_obj.strftime('%Y-%m-%d') %}
+<!--    <pre>{{ calendar_data|pprint }}</pre>-->
+    <div class="card">
+        <div class="card-body d-flex flex-column p-2">
+            {% set releases = calendar_data.get(date_obj) %}
+            <div class="d-flex justify-content-between mb-2">
+                <h6 class="card-title fs-6">{{ day }} {{ ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][(loop.index0+first_weekday) % 7] }}</h6>
+                {% if releases %}
+                <span class="badge bg-danger rounded-pill">
+                    {{ releases|length }}
+                    <a href="/releases/{{current_year}}/{{current_month_int}}/{{day}}" class="stretched-link"></a>
+                </span>
+                {% endif %}
+            </div>
+
+            {% if releases %}
+                {% if releases|length == 1 %}
+                    <img src="/static/images/header/{{ releases[0].appid }}.jpg" class="img-fluid rounded mb-1" alt="{{ releases[0].name }}">
+                    <div class="text-muted small mt-auto">{{ releases[0].name }}</div>
+                    <a href="/release/{{ releases[0].appid }}" class="stretched-link"></a>
+                {% else %}
+                    <div id="carousel-{{ date_key }}" class="carousel carousel-dark slide" data-bs-ride="carousel">
+                        <div class="carousel-inner">
+                            {% for rel in releases %}
+                            <div class="carousel-item {% if loop.first %}active{% endif %}">
+                                <img src="/static/images/header/{{ rel.appid }}.jpg" class="d-block w-100 rounded" alt="{{ rel.name }}">
+                                <a href="/release/{{ rel.appid }}" class="stretched-link"></a>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="carousel-indicators">
+                            {% for rel in releases %}
+                            <button type="button" data-bs-target="#carousel-{{ date_key }}" data-bs-slide-to="{{ loop.index0 }}"
+                                    {% if loop.first %}class="active" aria-current="true"{% endif %}
+                                    aria-label="Слайд {{ loop.index }}"></button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="text-white small mt-auto" id="carousel-title-{{ date_key }}">{{ releases[0].name }}</div>
+                {% endif %}
+            {% else %}
+                <div class="text-muted small mt-auto">Нет релизов</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% if calendar_data.get("no_date") %}
+<div class="mt-4" id="no-date-releases">
+    <h3>Без конкретной даты</h3>
+    <div class="row">
+        {% for rel in calendar_data["no_date"] %}
+        <div class="col-md-3 col-sm-6 mb-3">
+            <div class="card bg-dark text-white shadow-sm">
+                <img src="/static/images/header/{{ rel.appid }}.jpg" class="card-img-top rounded" alt="{{ rel.name }}">
+                <div class="card-body">
+                    <h6 class="card-title">{{ rel.name }}</h6>
+                    <p class="card-text text-muted">Дата в базе: {{ month_name }} {{ current_year }}</p>
+                    <a href="/release/{{ rel.appid }}" class="stretched-link"></a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block included_js %}
+<script>
+function goToSelectedMonth() {
+    const year = document.getElementById("selectYear").value;
+    const month = document.getElementById("selectMonth").value;
+    window.location.href = `/calendar/${year}/${month}`;
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const carousels = document.querySelectorAll('[id^="carousel-"]');
+    carousels.forEach(carousel => {
+        const id = carousel.id;
+        const titleEl = document.getElementById(`carousel-title-${id.replace('carousel-', '')}`);
+        const names = Array.from(carousel.querySelectorAll('.carousel-item')).map(item => item.querySelector('img').alt);
+        carousel.addEventListener('slid.bs.carousel', function (event) {
+            const newIndex = event.to;
+            if (titleEl) titleEl.textContent = names[newIndex];
+        });
+    });
+
+    let totalReleases = 0;
+    const badges = document.querySelectorAll('.calendar-grid .badge.bg-danger');
+    badges.forEach(badge => {
+        const count = parseInt(badge.textContent.trim(), 10);
+        if (!isNaN(count)) totalReleases += count;
+    });
+
+    const noDateSection = document.getElementById('no-date-releases');
+    if (noDateSection) totalReleases += noDateSection.querySelectorAll('.card').length;
+
+    const title = document.getElementById('calendar-title');
+    if (title && totalReleases > 0) title.textContent += ` (${totalReleases})`;
+});
+</script>
+{% endblock %}

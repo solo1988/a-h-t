@@ -63,6 +63,15 @@ async def get_releases(db: AsyncSession, year: int, month: int, user_id: int, da
         like_pattern_comma = f"%{month_str}, {year}%"
         like_pattern_no_comma = f"%{month_str} {year}%"
 
+        # Определяем квартал по выбранному месяцу
+        quarter = (month - 1) // 3 + 1
+
+        # Шаблоны для кварталов только для этого квартала
+        quarter_patterns = [
+            f"%{quarter} квартал {year}%",  # русский формат
+            f"%Q{quarter} {year}%"  # английский формат
+        ]
+
         stmt = (
             select(Release)
             .filter(Release.release_date_checked == 1)
@@ -77,7 +86,8 @@ async def get_releases(db: AsyncSession, year: int, month: int, user_id: int, da
                     Release.release_date.like(like_pattern_full_ru_space),
                     Release.release_date.like(like_pattern_full_ru_comma),
                     Release.release_date.like(like_pattern_ru_dot),
-                    Release.release_date.like(like_pattern_ru_year_suffix)
+                    Release.release_date.like(like_pattern_ru_year_suffix),
+                    *[Release.release_date.like(p) for p in quarter_patterns]
                 )
             )
             .filter(not_(or_(*excluded_conditions)))

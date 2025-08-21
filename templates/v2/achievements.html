@@ -1,0 +1,218 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Достижения — {{ game_name.name }}{% endblock %}
+{% block included_css %}
+<style>
+    .background-overlayer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url('{{ background }}');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        opacity: 0.6;
+        z-index: -1;
+        pointer-events: none;
+    }
+</style>
+{% endblock %}
+{% block content %}
+{% block bg_overlay %}
+<div class="background-overlayer"></div>
+{% endblock %}
+<div class="d-flex align-items-center justify-content-between my-4">
+    <h3 class="text-center mb-0">Достижения: {{ game_name.name }}</h3>
+    <input type="text" class="form-control search-input flex-grow-1 ms-4" placeholder="Поиск достижений" id="searchAchievements">
+</div>
+
+<div class="mb-3 d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPathsModal" data-appid="{{ appid }}">
+        <i class="bi bi-pencil"></i> Исправить пути
+    </button>
+    <a class="btn btn-sm btn-warning" href="/trackers/{{ appid }}">
+        <i class="bi bi-search"></i> Поиск на трекерах
+    </a>
+    <div class="dropdown">
+        <button class="btn btn-sm btn-danger dropdown-toggle" data-bs-toggle="dropdown">Руководства</button>
+        <ul class="dropdown-menu dropdown-menu-dark">
+            <li><a class="dropdown-item" href="https://steamcommunity.com/app/{{ appid }}/guides/" target="_blank">Steam</a></li>
+            <li><a class="dropdown-item" href="https://www.powerpyx.com/{{game_slug}}-trophy-guide-roadmap" target="_blank">PowerPyx</a></li>
+            <li><a class="dropdown-item" href="{{youtube}}" target="_blank">YouTube</a></li>
+        </ul>
+    </div>
+    <div class="form-check form-switch ms-auto">
+        <input class="form-check-input" type="checkbox" id="filterCheckbox">
+        <label class="form-check-label" for="filterCheckbox">Только не полученные</label>
+    </div>
+</div>
+
+<div class="row g-3" id="achievementsContainer">
+    {% for achievement in achievements %}
+    <div class="col-6 col-md-3 col-lg-2 achievement-card-wrapper">
+        <div class="card bg-dark text-white h-100 border
+            {% if achievement.earned %}border-success{% else %}border-danger{% endif %}">
+            <div class="position-relative">
+                <img src="{{ achievement.icon }}" class="card-img-top" alt="{{ achievement.name }}">
+                {% if achievement.yt_ach %}
+                <a href="{{ achievement.yt_ach }}" target="_blank"
+                   class="btn btn-sm btn-outline-danger position-absolute top-0 end-0 m-2 btn-yt">
+                    <i class="bi bi-youtube"></i>
+                </a>
+                {% endif %}
+            </div>
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title">{{ achievement.name }}</h6>
+                <a href="{{ achievement.link }}" target="_blank" class="stretched-link"></a>
+                <p class="card-text small fst-italic mt-auto">
+                    {% if achievement.earned %}
+                        ✅ Получено: {{ achievement.earned_date.strftime('%d.%m.%Y %H:%M:%S') }}
+                    {% else %}
+                        ❌ Не получено
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Модальное окно -->
+<div class="modal fade" id="editPathsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">Исправить пути</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editPathsForm">
+                    <input type="text" id="appid" class="form-control mb-3" value="{{ appid }}" readonly>
+                    <input type="text" id="oldSubstring" class="form-control mb-3" placeholder="Старая подстрока" required>
+                    <input type="text" id="newSubstring" class="form-control mb-3" placeholder="Новая подстрока" required>
+                    <button type="submit" class="btn btn-outline-primary">Исправить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="successToast" class="toast text-bg-success border-0">
+        <div class="d-flex">
+            <div class="toast-body">Пути успешно обновлены!</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block included_js %}
+<script>
+    const filterCheckbox = document.getElementById("filterCheckbox");
+    const searchInput = document.getElementById("searchAchievements");
+    const achievementsContainer = document.getElementById("achievementsContainer");
+    const achievementCards = document.querySelectorAll(".achievement-card-wrapper");
+
+    // Фильтрация и поиск
+    function updateAchievementsVisibility() {
+        const query = searchInput.value.toLowerCase();
+
+        achievementCards.forEach(card => {
+            const title = card.querySelector(".card-title").textContent.toLowerCase();
+            const isUnobtained = card.querySelector(".card-text").textContent.includes("Не получено");
+
+            let visible = true;
+
+            // Фильтр чекбоксом: скрываем полученные, если включен
+            if (filterCheckbox.checked && !isUnobtained) {
+                visible = false;
+            }
+
+            // Поиск по названию
+            if (query && !title.includes(query)) {
+                visible = false;
+            }
+
+            card.style.display = visible ? "block" : "none";
+        });
+    }
+
+    // Парсер даты (чтобы сортировка работала корректно)
+    function parseCustomDate(dateStr) {
+        const match = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})/);
+        if (!match) return new Date(0);
+        const [, day, month, year, hour, minute, second] = match.map(Number);
+        return new Date(year, month - 1, day, hour, minute, second);
+    }
+
+    // Сортировка достижений по дате
+    function sortAchievementsByDate() {
+        const cardsArray = Array.from(achievementsContainer.querySelectorAll(".achievement-card-wrapper"));
+        cardsArray.sort((a, b) => {
+            const aText = a.querySelector(".card-text").textContent.trim();
+            const bText = b.querySelector(".card-text").textContent.trim();
+            const aDateMatch = aText.match(/Получено:\s+([0-9.: ]+)/);
+            const bDateMatch = bText.match(/Получено:\s+([0-9.: ]+)/);
+
+            const aDate = aDateMatch ? parseCustomDate(aDateMatch[1]) : new Date(0);
+            const bDate = bDateMatch ? parseCustomDate(bDateMatch[1]) : new Date(0);
+
+            return bDate - aDate; // новее → старее
+        });
+
+        achievementsContainer.innerHTML = "";
+        cardsArray.forEach(card => achievementsContainer.appendChild(card));
+    }
+
+    // Навешиваем обработчики
+    filterCheckbox.addEventListener("change", updateAchievementsVisibility);
+    searchInput.addEventListener("input", updateAchievementsVisibility);
+
+    window.addEventListener("DOMContentLoaded", () => {
+        sortAchievementsByDate();
+        updateAchievementsVisibility();
+    });
+
+        // Обработчик отправки формы
+    document.getElementById('editPathsForm').addEventListener('submit', async function (event) {
+        event.preventDefault();
+
+        const appid = document.getElementById('appid').value;
+        const oldSubstring = document.getElementById('oldSubstring').value;
+        const newSubstring = document.getElementById('newSubstring').value;
+
+        // Отправка запроса на сервер для обновления путей
+        const response = await fetch('/update_paths', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({appid, oldSubstring, newSubstring}),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Показать уведомление о успешном обновлении
+            const notification = new bootstrap.Toast(document.getElementById('successToast'));
+            notification.show();
+
+            // Закрыть модальное окно
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editPathsModal'));
+            modal.hide();
+
+            // Перезагрузить страницу после закрытия уведомления
+            notification._element.addEventListener('hidden.bs.toast', function () {
+                location.reload();
+            });
+        } else {
+            alert('Ошибка при обновлении путей');
+        }
+    });
+</script>
+{% endblock %}
+}

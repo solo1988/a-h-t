@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, timedelta
 from calendar import monthrange
@@ -30,8 +30,11 @@ async def home(request: Request, user=Depends(manager)):
                 logger_app.info(f"авторизован юзер: {user.username, user.id}")
                 request.session["logged_once"] = True
 
+            use_v2 = request.cookies.get("use_v2") == "1"
             games = await get_games(session, user.id)
             now = datetime.now()
+            if use_v2:
+                return templates.TemplateResponse("v2/index.html", {"request": request, "games": games, "user": user, "now": now})
             return templates.TemplateResponse("index.html", {"request": request, "games": games, "user": user, "now": now})
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch games data: {str(e)}")
@@ -51,6 +54,11 @@ async def release_page(request: Request, appid: int, user=Depends(manager)):
     async with SessionLocal() as session:
         try:
             favorite_appids = await get_user_favorites(user.id, session)
+
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/release.html",
+                                                  {"request": request, "appid": appid, "now": now, "favorite_appids": favorite_appids, "user": user})
             return templates.TemplateResponse("release.html",
                                               {"request": request, "appid": appid, "now": now, "favorite_appids": favorite_appids, "user": user})
         except Exception as e:
@@ -73,6 +81,18 @@ async def game_calendar(request: Request, year: int = None, month: int = None, u
             first_day_of_month = datetime(year, month, 1)
             days_in_month = monthrange(year, month)[1]
             now = datetime.now()
+
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/calendar.html",
+                                                  {"request": request, "calendar_data": calendar_data, "user": user,
+                                                   "datetime": datetime,
+                                                   "MONTHS_MAP_REV": settings.MONTHS_MAP_REV, "current_year": year,
+                                                   "current_month": month_name,
+                                                   "month_name": month_name_rus, "main_year": main_year,
+                                                   "russian_months": settings.MONTHS_MAP_RUSSIAN,
+                                                   "current_month_int": month, "first_day_of_month": first_day_of_month,
+                                                   "days_in_month": days_in_month, "now": now})
             return templates.TemplateResponse("calendar.html",
                                               {"request": request, "calendar_data": calendar_data, "user": user,
                                                "datetime": datetime,
@@ -94,6 +114,11 @@ async def releases_by_day(request: Request, year: int, month: int, day: int, use
             calendar_data = await get_releases(session, year, month, user.id)
             releases = calendar_data.get(datetime(year, month, day).date(), [])
             now = datetime.now()
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/releases.html", {"request": request, "user": user, "releases": releases,
+                                                                    "formatted_date": f"{day} {settings.MONTHS_MAP_RUSSIAN.get(month, str(month))} {year}",
+                                                                    "now": now})
             return templates.TemplateResponse("releases.html", {"request": request, "user": user, "releases": releases,
                                                                 "formatted_date": f"{day} {settings.MONTHS_MAP_RUSSIAN.get(month, str(month))} {year}",
                                                                 "now": now})
@@ -109,6 +134,9 @@ async def wanted_games(request: Request, user=Depends(manager)):
             result = await session.execute(select(Wanted).where(Wanted.appid.is_not(None)).order_by(Wanted.added.desc()))
             wanted_list = result.scalars().all()
 
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/wanted.html", {"request": request, "user": user, "wanted": wanted_list, "now": datetime.now()})
             return templates.TemplateResponse("wanted.html", {"request": request, "user": user, "wanted": wanted_list, "now": datetime.now()})
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Ошибка загрузки: {str(e)}")
@@ -132,6 +160,9 @@ async def last_releases(request: Request, user=Depends(manager)):
                 games.append(game)
 
             now = datetime.now()
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/last_releases.html", {"request": request, "user": user, "releases": games, "now": now, })
             return templates.TemplateResponse("last_releases.html", {"request": request, "user": user, "releases": games, "now": now, })
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Ошибка загрузки: {str(e)}")
@@ -147,6 +178,10 @@ async def show_favorites(request: Request, user=Depends(manager)):
             releases = result.scalars().all()
             now = datetime.now()
 
+
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/favorites.html", {"request": request, "releases": releases, "user": user, "now": now})
             return templates.TemplateResponse("favorites.html", {"request": request, "releases": releases, "user": user, "now": now})
         except Exception as e:
             import traceback
@@ -161,6 +196,11 @@ async def trackers(request: Request, appid: int, user=Depends(manager)):
             game_name = await get_game_name(session, appid, user.id)
             background_url = f"/static/images/background/{appid}.jpg"
             now = datetime.now()
+
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/trackers.html",
+                                                  {"request": request, "appid": appid, "game_name": game_name, "background": background_url, "now": now}, )
             return templates.TemplateResponse("trackers.html",
                                               {"request": request, "appid": appid, "game_name": game_name, "background": background_url, "now": now}, )
         except Exception as e:
@@ -184,6 +224,13 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
                 for achievement in achievements
             ]
 
+
+            use_v2 = request.cookies.get("use_v2") == "1"
+            if use_v2:
+                return templates.TemplateResponse("v2/achievements.html",
+                                                  {"request": request, "appid": appid, "achievements": achievements_data, "game_name": game_name,
+                                                   "game_slug": game_slug, "youtube": youtube_link,
+                                                   "background": background_url, "now": now}, )
             return templates.TemplateResponse("achievements.html",
                                               {"request": request, "appid": appid, "achievements": achievements_data, "game_name": game_name,
                                                "game_slug": game_slug, "youtube": youtube_link,
@@ -191,6 +238,13 @@ async def achievements(request: Request, appid: int, user=Depends(manager)):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch games data: {str(e)}")
 
+@router.get("/switch-ui")
+async def switch_ui(request: Request):
+    use_v2 = request.cookies.get("use_v2") != "1"
+    response = RedirectResponse(url="/")
+    response.set_cookie(key="use_v2", value="1" if use_v2 else "0", httponly=True, max_age=31536000, samesite="lax",
+                        secure=False)
+    return response
 
 # Архивирование игры
 @router.post("/archive/{appid}")

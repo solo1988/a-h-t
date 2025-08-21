@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Игры{% endblock %}</title>
+    <link rel="shortcut icon" href="/static/favicon.ico">
+    <link rel="manifest" href="/static/manifest.json?v=4">
+    <meta name="theme-color" content="#000000">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #1e1e1e;
+            color: #fff;
+        }
+
+        .btn-yt {
+            z-index: 100;
+        }
+
+        .offcanvas-nav {
+            background-color: #2a2a2a;
+            height: 100vh;
+            padding: 1rem;
+        }
+
+        .offcanvas-nav .nav-link {
+            color: #ccc;
+        }
+
+        .offcanvas-nav .nav-link.active {
+            background-color: #3a3a3a;
+            color: #fff;
+        }
+
+        .sidebar {
+            background-color: #2a2a2a;
+            height: 100vh;
+            padding: 1rem;
+        }
+
+        .sidebar .nav-link {
+            color: #ccc;
+        }
+
+        .sidebar .nav-link.active {
+            background-color: #3a3a3a;
+            color: #fff;
+        }
+
+        .game-card {
+            background-color: #2a2a2a;
+            border: none;
+            border-radius: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        .game-card img {
+            width: 128px;
+            height: 64px;
+            object-fit: cover;
+            background-color: #2a2a2a; /* чтобы был фон, если пропорции не совпадают */
+            border-bottom-left-radius: 0.5rem;
+            border-top-left-radius: 0.5rem;
+        }
+
+        .progress {
+            height: 6px;
+            margin-top: 0.25rem;
+        }
+
+        .search-input {
+            background-color: #2a2a2a;
+            border: none;
+            color: #fff;
+        }
+
+        .search-input::placeholder {
+            color: #aaa;
+        }
+
+        /* Платиновые игры */
+        .game-card.platinum {
+            border: 2px solid gold;
+            box-shadow: 0 0 10px gold;
+        }
+
+        .fab-menu {
+            position: absolute;
+            bottom: 4rem;
+            right: 0;
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: flex-end;
+            gap: 0.5rem;
+            pointer-events: none; /* по умолчанию не блокируем клики */
+        }
+
+        .fab-container.open .fab-menu {
+            pointer-events: auto; /* активируем клики только когда открыто */
+        }
+
+        .fab-item-wrap {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .fab-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-width: 6rem;
+            height: 2.2rem;
+            border-radius: 50rem;
+            padding: 0 1rem 0 1rem;
+            opacity: 0;
+            transform: translateY(20px);
+            pointer-events: none;
+            margin: 0 0 0.2rem 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        .fab-label {
+            white-space: nowrap;
+            color: inherit;
+        }
+
+        .fab-container.open .fab-item {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+    </style>
+    {% block included_css %}{% endblock %}
+    {% block main_css %}
+    <link rel="stylesheet" href="/static/main.css?v=1">
+    {% endblock %}
+</head>
+<body {% block body_class %}{% endblock %} class="position-relative">
+{% block bg_overlay %}{% endblock %}
+{% block install_button %}{% endblock %}
+{% block welcome %}{% endblock %}
+<!-- Offcanvas Menu -->
+<!--<div class="offcanvas offcanvas-start" tabindex="-1" id="offcanvasMenu" aria-labelledby="offcanvasMenuLabel">-->
+<!--    <div class="offcanvas-header">-->
+<!--        <h5 id="offcanvasMenuLabel">Меню</h5>-->
+<!--        <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Закрыть"></button>-->
+<!--    </div>-->
+<!--    <div class="offcanvas-body offcanvas-nav d-flex flex-column">-->
+<!--        <ul class="nav nav-pills flex-column mb-auto">-->
+<!--            <li class="nav-item mb-2">-->
+<!--                <a href="/" class="nav-link text-white">-->
+<!--                    <i class="bi bi-house"></i> Домашняя-->
+<!--                </a>-->
+<!--            </li>-->
+<!--            <li class="nav-item mb-2">-->
+<!--                <a href="/favorites" class="nav-link text-white">-->
+<!--                    <i class="bi bi-heart"></i> Избранное-->
+<!--                </a>-->
+<!--            </li>-->
+<!--            <li class="nav-item mb-2">-->
+<!--                <a href="/last_releases" class="nav-link text-white">-->
+<!--                    <i class="bi bi-plus-slash-minus"></i> Последние обновления-->
+<!--                </a>-->
+<!--            </li>-->
+<!--            <li class="nav-item mb-2">-->
+<!--                <a href="/wanted" class="nav-link text-white">-->
+<!--                    <i class="bi bi-controller"></i> Самые ожидаемые-->
+<!--                </a>-->
+<!--            </li>-->
+<!--            <li class="nav-item mb-2">-->
+<!--                <a href="/calendar/{{ now.year }}/{{ '%01d' % now.month }}" class="nav-link text-white">-->
+<!--                    <i class="bi bi-gear"></i> Календарь-->
+<!--                </a>-->
+<!--            </li>-->
+<!--        </ul>-->
+
+<!--        <a href="/switch-ui" class="btn btn-outline-light btn-sm mt-auto d-block">-->
+<!--            {% if request.cookies.get('use_v2') == '1' %}-->
+<!--            Старый интерфейс-->
+<!--            {% else %}-->
+<!--            Новый интерфейс-->
+<!--            {% endif %}-->
+<!--        </a>-->
+<!--    </div>-->
+
+<!--</div>-->
+
+<!-- Main Content -->
+<div class="container">
+<!--    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">-->
+<!--        <div class="container-fluid d-flex align-items-center">-->
+<!--            <button class="btn btn-dark d-flex align-items-center" type="button"-->
+<!--                    data-bs-toggle="offcanvas" data-bs-target="#offcanvasMenu"-->
+<!--                    aria-controls="offcanvasMenu">-->
+<!--                <i class="bi bi-controller fs-1"></i>-->
+<!--            </button>-->
+<!--            <a class="navbar-brand ms-2 d-flex align-items-center" href="/">-->
+<!--                Achievements Tracker-->
+<!--            </a>-->
+<!--        </div>-->
+<!--    </nav>-->
+
+    {% block content %}
+    {% endblock %}
+</div>
+<div class="fab-container position-fixed" style="bottom: 1.5rem; right: 1.5rem; z-index: 1050;">
+    <button class="btn btn-warning rounded-circle shadow-lg d-flex align-items-center justify-content-center fab-main"
+            style="width: 3.5rem; height: 3.5rem;">
+        <i class="bi bi-list fs-3"></i>
+    </button>
+
+    <div class="fab-menu d-flex flex-column align-items-end">
+
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-primary d-flex align-items-center shadow-lg"
+                    onclick="location.href='/switch-ui'">
+                <span class="fab-label text-white small">Старый интерфейс</span>
+                <i class="bi bi-layout-text-sidebar-reverse fs-3 ms-2"></i>
+            </button>
+        </div>
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-secondary d-flex align-items-center shadow-lg"
+                    onclick="location.href='/wanted'">
+                <span class="fab-label text-white small">Самые ожидаемые</span>
+                <i class="bi bi-controller fs-3 ms-2"></i>
+            </button>
+        </div>
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-info d-flex align-items-center shadow-lg"
+                    onclick="location.href='/last_releases'">
+                <span class="fab-label text-white small">Обновления</span>
+                <i class="bi bi-plus-slash-minus fs-3 ms-2"></i>
+            </button>
+        </div>
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-success d-flex align-items-center shadow-lg"
+                    onclick="location.href='/calendar/{{ now.year }}/{{ '%01d' % now.month }}'">
+                <span class="fab-label text-white small">Календарь</span>
+                <i class="bi bi-calendar-event fs-3 ms-2"></i>
+            </button>
+        </div>
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-danger d-flex align-items-center shadow-lg"
+                    onclick="location.href='/favorites'">
+                <span class="fab-label text-white small">Избранное</span>
+                <i class="bi bi-heart fs-3 ms-2"></i>
+            </button>
+        </div>
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-primary d-flex align-items-center shadow-lg" onclick="location.href='/'">
+                <span class="fab-label text-white small">Домой</span>
+                <i class="bi bi-house fs-3 ms-2"></i>
+            </button>
+        </div>
+        <div class="fab-item-wrap">
+            <button class="fab-item btn btn-warning d-flex align-items-center shadow-lg" onclick="goBack()">
+                <span class="fab-label text-dark small">Назад</span>
+                <i class="bi bi-arrow-left fs-3 ms-2"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function initFabMenu() {
+        const fabContainer = document.querySelector('.fab-container');
+        const fabMain = document.querySelector('.fab-main');
+        if (!fabContainer || !fabMain) return;
+        const fabIcon = fabMain.querySelector('i');
+
+        fabMain.addEventListener('click', () => {
+            fabContainer.classList.toggle('open');
+            const items = fabContainer.querySelectorAll('.fab-item');
+
+            if (fabContainer.classList.contains('open')) {
+                fabIcon.classList.replace('bi-list', 'bi-x-lg');
+                items.forEach((item, i) => {
+                    setTimeout(() => {
+                        item.classList.add('open');
+                    }, i * 100); // поочередное появление сверху вниз
+                });
+            } else {
+                fabIcon.classList.replace('bi-x-lg', 'bi-list');
+                items.forEach(item => item.classList.remove('open'));
+            }
+        });
+
+        function collapseMenu() {
+            fabContainer.classList.remove('open');
+            fabIcon.classList.replace('bi-x-lg', 'bi-list');
+            fabContainer.querySelectorAll('.fab-item').forEach(item => {
+                item.classList.remove('open');
+            });
+        }
+
+        collapseMenu();
+        window.addEventListener('pageshow', collapseMenu);
+    }
+
+    document.addEventListener('DOMContentLoaded', initFabMenu);
+
+    function goBack() {
+        history.back();
+    }
+
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    function handleGesture() {
+        const threshold = 100; // минимальная длина свайпа
+
+        // свайп вправо (назад)
+        if (touchEndX - touchStartX > threshold) {
+            goBack();
+        }
+
+        // свайп влево (открыть меню)
+        if (touchStartX - touchEndX > threshold) {
+            document.querySelector('.fab-container').classList.add('open');
+        }
+    }
+
+    document.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+    }, {passive: true});
+
+    document.addEventListener('touchend', (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        handleGesture();
+    }, {passive: true});
+</script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+{% block install_scripts %}{% endblock %}
+<script>
+    window.addEventListener("pageshow", (event) => {
+        const offcanvasEl = document.getElementById("offcanvasMenu");
+        if (offcanvasEl && offcanvasEl.classList.contains("show")) {
+            const offcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl);
+            if (offcanvas) {
+                offcanvas.hide();
+            } else {
+                // создаём новый экземпляр и сразу скрываем
+                new bootstrap.Offcanvas(offcanvasEl).hide();
+            }
+        }
+    });
+</script>
+{% block included_js %}{% endblock %}
+</body>
+</html>

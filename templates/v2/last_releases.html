@@ -1,0 +1,35 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Обновления релизов за 3 дня{% endblock %}
+
+{% block content %}
+<h3 class="my-4">Обновления релизов за 3 дня</h3>
+
+{% if releases %}
+<div class="row g-4">
+    {% for release in releases %}
+    <div class="col-6 col-md-4 col-lg-3">
+        <div class="card h-100 bg-dark text-white border shadow-sm position-relative">
+            <img src="/static/images/header/{{ release.appid }}.jpg"
+                 class="card-img-top img-fluid rounded" alt="{{ release.name }}">
+
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title">{{ release.name }}</h6>
+                <p class="card-text small fst-italic mt-auto">
+                    Дата релиза: {{ release.release_date }}
+                </p>
+            </div>
+
+            <span class="position-absolute top-100 start-50 translate-middle badge rounded-pill bg-primary">
+                {{ release.updated_at.strftime('%d.%m.%Y %H:%M:%S') }}
+            </span>
+
+            <a href="/release/{{ release.appid }}" class="stretched-link"></a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">Нет данных</p>
+{% endif %}
+{% endblock %}

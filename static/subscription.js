@@ -1,25 +1,3 @@
-document.getElementById("addGameForm").addEventListener("submit", async function (event) {
-    event.preventDefault();  // Останавливаем стандартную отправку формы
-
-    let appid = document.getElementById("appidInput").value.trim();  // Получаем appid
-    console.log("Отправляем appid:", appid);  // Логируем в консоли браузера
-
-    let response = await fetch("/add_game", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({appid: appid}),
-    });
-
-    let result = await response.json();
-    if (response.ok) {
-         location.reload();  // Перезагружаем страницу
-    } else {
-        alert("Ошибка: " + JSON.stringify(result));  // Показываем ошибку
-    }
-});
-
 const VAPID_PUBLIC_KEY = "BPbVTP_DQbdgTrMuOi4GW6eQ8F5vVezzxsAYQZs1_cjTEF079H3EqgeOvhiSD7ZxgBzS5EoFT2nRrGX5Z3AOZ2I";  // Замените на свой публичный ключ
 
 document.addEventListener("DOMContentLoaded", function () {

@@ -1,0 +1,199 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Информация об игре{% endblock %}
+
+{% block included_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css"/>
+{% endblock %}
+
+{% block white_bg %}
+<div class="white-tint"></div>
+{% endblock %}
+
+{% block content %}
+<div class="container my-4" id="game-container">
+    <div class="text-center">
+        <div class="spinner-border" role="status" id="loading-spinner">
+            <span class="visually-hidden">Загрузка...</span>
+        </div>
+        <p>Загрузка данных об игре...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block included_js %}
+<script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
+<script>
+    const appid = "{{ appid }}";
+
+    async function fetchGameDetails(appid) {
+        const container = document.getElementById('game-container');
+        try {
+            const response = await fetch(`/api/steam_appdetails/${appid}`);
+            if (!response.ok) throw new Error('Ошибка сети');
+            const data = await response.json();
+            if (!data[appid].success) {
+                showError('Информация об игре не найдена');
+                return;
+            }
+            renderGame(data[appid].data, appid);
+            Fancybox.bind("[data-fancybox='gallery']", {});
+        } catch (error) {
+            showError('Ошибка при загрузке данных: ' + error.message);
+        }
+    }
+
+    function showError(message) {
+        const container = document.getElementById('game-container');
+        container.innerHTML = `
+        <div class="alert alert-danger" role="alert">${message}</div>
+    `;
+    }
+
+    function renderGame(game, appid) {
+        const container = document.getElementById('game-container');
+
+        const genres = game.genres ? game.genres.map(g => g.description).join(', ') : 'Нет данных';
+        const developers = game.developers ? game.developers.join(', ') : 'Нет данных';
+        const publishers = game.publishers ? game.publishers.join(', ') : 'Нет данных';
+        const game_name = game.name;
+        console.log(game_name);
+
+        container.innerHTML = `
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <img src="${game.header_image}" alt="${game.name}" class="img-fluid rounded mb-3" />
+
+                <div class="my-2"><strong>Разработчик:</strong> ${developers}</div>
+                <div class="my-2"><strong>Издатель:</strong> ${publishers}</div>
+                <div class="my-2"><strong>Жанры:</strong> ${genres}</div>
+                <div class="my-2"><strong>Дата релиза:</strong> ${game.release_date && game.release_date.date ? game.release_date.date : 'Нет данных'}</div>
+                <div class="my-2"><strong>Языки:</strong> ${game.supported_languages}</div>
+                <div class="my-2"><strong>Appid:</strong> {{ appid }}</div>
+
+                <div class="my-3 d-flex align-items-center">
+                    <strong id="favorite-label">Добавить в избранное:</strong>
+                    <form class="favorite-form ms-2 d-inline" data-appid="{{ appid }}">
+                        <button type="submit" class="btn btn-link p-0 m-0">
+                            <i class="bi bi-heart{% if appid in favorite_appids %}-fill text-danger{% endif %}"></i>
+                        </button>
+                    </form>
+                </div>
+
+                <form id="addGameFormRelease" class="mt-4 d-flex flex-column gap-2">
+                    <input type="hidden" id="appidInputRelease" value="{{ appid }}">
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                    <a href="https://store.steampowered.com/app/{{ appid }}" class="btn btn-danger" target="_blank">Страница в Steam</a>
+                    <a class="btn btn-warning"
+                       href="https://rutor.info/search/0/8/000/0/${encodeURIComponent(game_name)}"
+                       target="_blank" rel="noopener">
+                       Rutor
+                    </a>
+                    <a class="btn btn-success"
+                       href="https://rutracker.org/forum/tracker.php?f=1008,127,128,1310,2118,2203,2204,2205,2206,2225,2226,2228,2410,278,5,50,51,52,53,54,635,646,647,900&nm=${encodeURIComponent(game_name)}"
+                       target="_blank" rel="noopener">
+                       Rutracker
+                    </a>
+                </form>
+            </div>
+
+            <div class="col-md-8 mb-3">
+                <h1>${game.name}</h1>
+                <div>${game.short_description}</div>
+                <hr/>
+                <div>${game.about_the_game ? game.about_the_game : ''}</div>
+
+                ${game.screenshots && game.screenshots.length > 0 ? `
+                    <hr/>
+                    <h5>Скриншоты</h5>
+                    <div class="d-flex flex-wrap gap-2 justify-content-center">
+                        ${game.screenshots.map(s => `
+                            <a href="${s.path_full}" data-fancybox="gallery">
+                                <img src="${s.path_thumbnail}" class="img-fluid rounded" style="max-width: 180px;" alt="Screenshot" />
+                            </a>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+
+        // Добавление игры
+        const form = document.getElementById("addGameFormRelease");
+        if (form) {
+            form.addEventListener("submit", async function (event) {
+                event.preventDefault();
+
+                let appid = document.getElementById("appidInputRelease").value.trim();
+                console.log("Отправляем appid:", appid);
+
+                let response = await fetch("/add_game", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({appid: appid}),
+                });
+
+                let result = await response.json();
+                if (response.ok) {
+                    alert("Игра добавлена!");
+                } else {
+                    alert("Ошибка: " + JSON.stringify(result));
+                }
+            });
+        }
+
+        // Избранное
+        function updateFavoriteLabel(form) {
+            const icon = form.querySelector('i');
+            const label = document.getElementById('favorite-label');
+            if (!label) return;
+            label.textContent = icon.classList.contains('bi-heart-fill') ? "Убрать из избранного:" : "Добавить в избранное:";
+        }
+
+        document.querySelectorAll('.favorite-form').forEach(form => {
+            updateFavoriteLabel(form);
+            form.addEventListener('submit', async e => {
+                e.preventDefault();
+                const appid = form.dataset.appid;
+                const icon = form.querySelector('i');
+                const label = document.getElementById('favorite-label');
+                const isFavorite = icon.classList.contains('bi-heart-fill');
+
+                if (isFavorite) {
+                    icon.classList.remove('bi-heart-fill', 'text-danger');
+                    icon.classList.add('bi-heart');
+                    if (label) label.textContent = "Добавить в избранное:";
+                } else {
+                    icon.classList.remove('bi-heart');
+                    icon.classList.add('bi-heart-fill', 'text-danger');
+                    if (label) label.textContent = "Убрать из избранного:";
+                }
+
+                const method = isFavorite ? 'DELETE' : 'POST';
+                const res = await fetch(`/favorites/${appid}`, {method});
+                if (!res.ok) {
+                    if (isFavorite) {
+                        icon.classList.remove('bi-heart');
+                        icon.classList.add('bi-heart-fill', 'text-danger');
+                        if (label) label.textContent = "Убрать из избранного:";
+                    } else {
+                        icon.classList.remove('bi-heart-fill', 'text-danger');
+                        icon.classList.add('bi-heart');
+                        if (label) label.textContent = "Добавить в избранное:";
+                    }
+                    alert("Ошибка при обновлении избранного");
+                }
+            });
+        });
+
+        // Классы для изображений и видео
+        document.querySelectorAll('.col-md-8 img, .col-md-8 video').forEach(el => {
+            el.classList.add('img-fluid', 'd-block', 'my-3', 'mx-auto');
+        });
+    }
+
+    fetchGameDetails(appid);
+</script>
+{% endblock %}

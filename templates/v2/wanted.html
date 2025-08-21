@@ -1,0 +1,32 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Самые ожидаемые игры года{% endblock %}
+
+{% block content %}
+<h3 class="my-4">Самые ожидаемые игры года</h3>
+
+{% if wanted %}
+<div class="row g-4">
+    {% for release in wanted %}
+    <div class="col-6 col-md-4 col-lg-3 position-relative">
+        <div class="card h-100 bg-dark text-white border shadow-sm position-relative">
+            <img src="/static/images/header/{{ release.appid }}.jpg"
+                 class="card-img-top img-fluid rounded" alt="{{ release.name }}">
+
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title">{{ release.name }}</h6>
+            </div>
+
+            <span class="position-absolute top-100 start-50 translate-middle badge rounded-pill bg-danger">
+                {{ release.added }} ожидающих
+            </span>
+
+            <a href="/release/{{ release.appid }}" class="stretched-link"></a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">Нет данных</p>
+{% endif %}
+{% endblock %}

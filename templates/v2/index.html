@@ -1,0 +1,327 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Главная - Новый интерфейс{% endblock %}
+
+{% block install_button %}
+
+<button id="install-btn"
+        style="display: none; position: fixed; bottom: 16px; right: 16px; padding: 10px 16px; z-index: 9999;">
+    📲 Установить приложение
+</button>{% endblock %}
+
+{% block content %}
+
+
+<div class="d-flex align-items-center justify-content-between my-4">
+    <h3 class="text-center flex-shrink-0 mb-0">Привет, {{ user.username }}!</h3>
+    <input type="text" class="form-control search-input flex-grow-1 ms-4" placeholder="Поиск" id="searchInput">
+</div>
+
+<div class="mb-3">
+    <div id="search-overlay-new" class="d-none">
+        <div data-bs-theme="dark">
+            <button type="button" class="btn-close" id="close-search" aria-label="Close"></button>
+        </div>
+        <div data-bs-theme="dark" id="search-results" class="list-group my-4"
+             style="max-height: 300px; overflow-y: auto;"></div>
+    </div>
+    <button class="btn btn-outline-warning me-2" id="showArchiveBtn">
+        <i class="bi bi-archive"></i> Архив
+    </button>
+    <button class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#logsModal">
+        <i class="bi bi-journal-text"></i> Логи
+    </button>
+</div>
+
+<div id="gameList">
+    {% for game in games %}
+    {% set earned = game.earned_achievements %}
+    {% set total = game.total_achievements %}
+    {% set percent = (earned / total * 100) if total > 0 else 0 %}
+    {% set is_platinum = earned == total and total > 0 %}
+    <div class="game-card my-4 d-flex align-items-stretch {% if is_platinum %}platinum{% endif %} {% if game.is_archived %}d-none{% endif %}"
+         data-game-name="{{ game.name | lower }}" data-appid="{{ game.appid }}">
+        <img src="{{ game.background or 'https://via.placeholder.com/64' }}" alt="{{ game.name }}">
+        <div class="ms-2 flex-grow-1 d-flex flex-column justify-content-between">
+            <div class="d-flex justify-content-between align-items-center pt-0">
+                <span class="small">
+                    {{ game.name }}
+                    {% if is_platinum %}
+                        <i class="bi bi-award-fill text-warning" title="Платиновая игра"></i>
+                    {% endif %}
+                </span>
+                <span class="small">{{ earned }}/{{ total }}</span>
+            </div>
+            <div class="progress">
+                <div class="progress-bar {% if is_platinum %}bg-warning{% else %}bg-success{% endif %}"
+                     role="progressbar" style="width: {{ percent }}%;"></div>
+            </div>
+            <div class="mt-1">
+                {% if game.appid %}
+                <a href="/achievements/{{ game.appid }}" class="btn btn-outline-light me-2" style="--bs-btn-padding-y: .1rem; --bs-btn-padding-x: .5rem; --bs-btn-font-size: .75rem;">Детали</a>
+                {% endif %}
+                <button class="btn btn-outline-danger archive-btn" style="--bs-btn-padding-y: .1rem; --bs-btn-padding-x: .5rem; --bs-btn-font-size: .75rem;" data-appid="{{ game.appid }}">Архив</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Модальное окно архива -->
+<div class="modal fade" id="archiveModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">Архивированные игры</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="archiveList">
+                <p class="text-muted">Загрузка архива...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно логов -->
+<div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logsModalLabel">Логи</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+
+                <!-- Tabs nav -->
+                <ul class="nav nav-tabs" id="logTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="app-tab" data-bs-toggle="tab" data-bs-target="#app-log"
+                                type="button" role="tab" aria-controls="app-log" aria-selected="true">app.log
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="releases-tab" data-bs-toggle="tab"
+                                data-bs-target="#releases-log"
+                                type="button" role="tab" aria-controls="releases-log" aria-selected="false">
+                            releases.log
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="updater-tab" data-bs-toggle="tab" data-bs-target="#updater-log"
+                                type="button" role="tab" aria-controls="updater-log" aria-selected="false">
+                            updater.log
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Tabs content -->
+                <div class="tab-content mt-3">
+                    <div class="tab-pane fade show active" id="app-log" role="tabpanel" aria-labelledby="app-tab">
+                            <pre id="appLogContent" class="bg-dark text-white p-3 rounded"
+                                 style="max-height: 600px; overflow-y: auto;">Загрузка...</pre>
+                    </div>
+                    <div class="tab-pane fade" id="releases-log" role="tabpanel" aria-labelledby="releases-tab">
+                            <pre id="releasesLogContent" class="bg-dark text-white p-3 rounded"
+                                 style="max-height: 600px; overflow-y: auto;">Загрузка...</pre>
+                    </div>
+                    <div class="tab-pane fade" id="updater-log" role="tabpanel" aria-labelledby="updater-tab">
+                            <pre id="updaterLogContent" class="bg-dark text-white p-3 rounded"
+                                 style="max-height: 600px; overflow-y: auto;">Загрузка...</pre>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const searchBtn = document.getElementById('toggle-search');
+        const searchOverlay = document.getElementById('search-overlay-new');
+        const closeBtn = document.getElementById('close-search');
+        const input = document.getElementById('searchInput');
+        const results = document.getElementById('search-results');
+
+        let timeout;
+
+        function closeSearch() {
+            searchOverlay.classList.remove('d-block');
+            searchOverlay.classList.add('d-none');
+            input.value = '';
+            results.innerHTML = '';
+        }
+
+        closeBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeSearch();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeSearch();
+        });
+
+        input.addEventListener('input', () => {
+            clearTimeout(timeout);
+            const query = input.value.trim();
+
+            if (query.length < 2) {
+                results.innerHTML = '';
+                searchOverlay.classList.remove('d-block');
+                searchOverlay.classList.add('d-none');
+                return;
+            } else {
+                searchOverlay.classList.add('d-block');
+                searchOverlay.classList.remove('d-none');
+            }
+
+            timeout = setTimeout(() => {
+                fetch(`/api/search?q=${encodeURIComponent(query)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        results.innerHTML = '';
+                        if (data.length) {
+                            console.log(data);
+                            data.forEach(rel => {
+                                const a = document.createElement('a');
+                                a.href = `/release/${rel.appid}`;
+                                a.className = 'list-group-item list-group-item-action';
+                                a.innerHTML = `
+                                <div class="d-flex align-items-center">
+                                    <img src="/static/images/header/${rel.appid}.jpg" class="me-2" style="height: 40px;">
+                                    <div>
+                                        <div>${rel.name}</div>
+                                        <small class="text-muted">${rel.release_date}</small>
+                                    </div>
+                                </div>`;
+                                results.appendChild(a);
+                            });
+                        } else {
+                            results.innerHTML = '<div class="list-group-item text-muted">Ничего не найдено</div>';
+                        }
+                    });
+            }, 300);
+        });
+    });
+</script>
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const searchInput = document.getElementById('searchInput');
+        searchInput.addEventListener('input', function () {
+            const filter = this.value.toLowerCase();
+            document.querySelectorAll('#gameList .game-card').forEach(function (card) {
+                card.style.display = card.dataset.gameName.includes(filter) ? '' : 'none';
+            });
+        });
+
+// Архивирование
+        document.querySelectorAll('.archive-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const appid = this.dataset.appid;
+                fetch(`/archive/${appid}`, {method: 'POST'})
+                    .then(res => {
+                        if (!res.ok) throw new Error("Ошибка архивирования");
+                        // Скрываем карточку на главной
+                        const card = this.closest('.game-card');
+                        if (card) card.classList.add('d-none');
+                    })
+                    .catch(err => alert(err.message));
+            });
+        });
+
+        // Модалка архива
+        const archiveModal = new bootstrap.Modal(document.getElementById('archiveModal'));
+        document.getElementById('showArchiveBtn').addEventListener('click', () => {
+            archiveModal.show();
+            fetch("/archived")
+                .then(res => res.json())
+                .then(games => {
+                    const container = document.getElementById("archiveList");
+                    container.innerHTML = "";
+                    if (games.length === 0) {
+                        container.innerHTML = "<p class='text-muted'>Архив пуст.</p>";
+                        return;
+                    }
+                    games.forEach(game => {
+                        console.log(game);
+                        container.innerHTML += `
+                        <div class="game-card my-3 d-flex align-items-center" data-appid="${game.appid}">
+                            <img src="${game.background || 'https://via.placeholder.com/64'}" alt="${game.name}">
+                            <div class="ms-3 flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span>${game.name}</span>
+                                </div>
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-success restore-btn" data-appid="${game.appid}">Вернуть</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    });
+
+// Кнопки возврата из архива
+                    container.querySelectorAll('.restore-btn').forEach(btn => {
+                        btn.addEventListener('click', function () {
+                            const appid = this.dataset.appid;
+                            fetch(`/unarchive/${appid}`, {method: 'POST'})
+                                .then(res => {
+                                    if (!res.ok) throw new Error("Ошибка возврата");
+                                    // Убираем карточку из оффканваса архива
+                                    this.closest('.game-card').remove();
+                                    // Показываем карточку на главной
+                                    const mainCard = document.querySelector(`.game-card[data-appid="${appid}"]`);
+                                    if (mainCard) mainCard.classList.remove('d-none');
+                                })
+                                .catch(err => alert(err.message));
+                        });
+                    });
+                })
+                .catch(() => {
+                    document.getElementById("archiveList").innerHTML = "<p class='text-danger'>Ошибка загрузки архива.</p>";
+                });
+        });
+
+        // Модалка логов
+        const logModal = document.getElementById('logsModal');
+        const logMap = {
+            'app-tab': {path: '/log/app', target: 'appLogContent'},
+            'releases-tab': {path: '/log/releases', target: 'releasesLogContent'},
+            'updater-tab': {path: '/log/updater', target: 'updaterLogContent'}
+        };
+
+        // При открытии модалки подгружаем первый лог
+        logModal.addEventListener('show.bs.modal', () => {
+            loadLog('app-tab');
+        });
+
+        // Подгрузка лога при переключении вкладки
+        Object.keys(logMap).forEach(tabId => {
+            document.getElementById(tabId).addEventListener('click', () => {
+                loadLog(tabId);
+            });
+        });
+
+        function loadLog(tabId) {
+            const logInfo = logMap[tabId];
+            const target = document.getElementById(logInfo.target);
+            target.textContent = 'Загрузка...';
+            fetch(logInfo.path)
+                .then(response => response.text())
+                .then(text => {
+                    // Разбиваем на строки и переворачиваем
+                    const lines = text.split('\n').reverse();
+                    target.textContent = lines.join('\n');
+                })
+                .catch(() => {
+                    target.textContent = 'Не удалось загрузить лог.';
+                });
+        }
+    });
+</script>
+{% endblock %}
+{% block install_scripts %}
+<script src="/static/install.js"></script>
+<script src="/static/subscription.js?v=1"></script>{% endblock %}

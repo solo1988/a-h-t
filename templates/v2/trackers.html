@@ -1,0 +1,38 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Раздачи на трекерах для {{ game_name.name }}{% endblock %}
+
+{% block included_css %}
+<style>
+.btn-tracker {
+    padding: 1rem;
+    font-size: 1.1rem;
+    border-radius: 0.75rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.btn-tracker:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+    <h1 class="text-center text-white mb-5">Трекеры для игры: {{ game_name.name }}</h1>
+    <div class="row justify-content-center">
+        <div class="col-md-6 d-grid gap-3">
+            <a class="btn btn-primary btn-tracker"
+               href="https://rutor.info/search/0/8/000/0/{{ game_name.name | replace(' ', '%20') }}"
+               target="_blank" rel="noopener">
+               Rutor
+            </a>
+            <a class="btn btn-success btn-tracker"
+               href="https://rutracker.org/forum/tracker.php?f=1008,127,128,1310,2118,2203,2204,2205,2206,2225,2226,2228,2410,278,5,50,51,52,53,54,635,646,647,900&nm={{ game_name.name | replace(' ', '%20') }}"
+               target="_blank" rel="noopener">
+               Rutracker
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

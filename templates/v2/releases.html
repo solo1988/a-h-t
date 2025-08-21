@@ -1,0 +1,49 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Релизы за {{ formatted_date }}{% endblock %}
+
+{% block white_bg %}
+<div class="white-tint"></div>
+{% endblock %}
+
+{% block content %}
+<h3 class="mb-4 text-white">Релизы за {{ formatted_date }}</h3>
+
+{% if releases %}
+<div class="row g-3">
+    {% for release in releases %}
+    <div class="col-md-3 col-sm-6">
+        <div class="card h-100 bg-dark text-white shadow-sm position-relative">
+            <img src="/static/images/header/{{ release.appid }}.jpg"
+                 class="card-img-top rounded" alt="{{ release.name }}">
+            <div class="card-body d-flex flex-column">
+                <h6 class="card-title mb-2">{{ release.name }}</h6>
+                <p class="card-text text-light mt-auto">Дата в базе: {{ formatted_date }}</p>
+            </div>
+            <a href="/release/{{ release.appid }}" class="stretched-link"></a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">На эту дату релизов нет.</p>
+{% endif %}
+{% endblock %}
+
+{% block included_css %}
+<style>
+.card.bg-dark {
+    background-color: #1c1c1c !important;
+    border: none;
+    transition: transform 0.2s;
+}
+.card.bg-dark:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+}
+.card-img-top {
+    max-height: 180px;
+    object-fit: cover;
+}
+</style>
+{% endblock %}
